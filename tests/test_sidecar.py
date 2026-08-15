@@ -189,6 +189,8 @@ class PackagingTests(unittest.TestCase):
     def test_dashboard_refresh_is_bounded_and_non_overlapping(self):
         dashboard = (MODULE_PATH.parent / "dashboard.html").read_text()
         self.assertIn("const MAP_AIRCRAFT_LIMIT = 120", dashboard)
+        self.assertIn("const CLUSTER_CELL_PX = 72", dashboard)
+        self.assertIn('class="aircraft-cluster', dashboard)
         self.assertIn("if (refreshInFlight) return", dashboard)
         self.assertIn('document.addEventListener("visibilitychange"', dashboard)
         self.assertNotIn("setInterval(refresh", dashboard)

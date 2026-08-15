@@ -254,6 +254,20 @@
     }
     .plane-marker.stale { opacity: .54; filter: grayscale(.6); }
     .plane-glyph { display: block; line-height: 1; transform-origin: 50% 50%; }
+    .aircraft-cluster {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(213, 247, 255, .82);
+      border-radius: 50%;
+      color: #041016;
+      background: linear-gradient(145deg, #8cecff, #38bddd);
+      box-shadow: 0 0 0 6px rgba(85, 217, 255, .1), 0 0 24px rgba(85, 217, 255, .42);
+      font-size: .78rem;
+      font-weight: 900;
+    }
+    .aircraft-cluster.stale { opacity: .68; filter: saturate(.58); }
     .map-toolbar { position: absolute; z-index: 500; top: 10px; right: 10px; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 70px); }
     .map-readout, .map-action {
       min-height: 34px;
@@ -429,7 +443,7 @@
         </div>
         <div class="map-legend" aria-hidden="true">
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--purple)"></span>Recent activity cell</span>
-          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--cyan)"></span>Aircraft seen in 6h</span>
+          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--cyan);border-radius:50%"></span>Aircraft / clusters (6h)</span>
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--gold)"></span>Heading vector</span>
         </div>
       </section>
@@ -498,6 +512,7 @@
     const REFRESH_MS = 10000;
     const MAP_WINDOW_SECONDS = 6 * 60 * 60;
     const MAP_AIRCRAFT_LIMIT = 120;
+    const CLUSTER_CELL_PX = 72;
     const validPoint = function (item) {
       return Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) &&
         Number(item.lat) >= -90 && Number(item.lat) <= 90 &&
@@ -547,7 +562,11 @@
       gridLayer = L.layerGroup().addTo(map);
       vectorLayer = L.layerGroup().addTo(map);
       aircraftLayer = L.layerGroup().addTo(map);
-      map.on("moveend zoomend", updateMapReadout);
+      map.on("moveend", updateMapReadout);
+      map.on("zoomend", function () {
+        updateMapReadout();
+        if (latestData) renderMap(latestData);
+      });
       updateMapReadout();
     }
 
@@ -620,67 +639,97 @@
       });
 
       const now = Date.now() / 1000;
-      const visibleAircraft = layerState.aircraft ? data.aircraft.filter(function (aircraft) {
+      const allAircraft = Array.isArray(data.aircraft) ? data.aircraft : [];
+      const visibleAircraft = layerState.aircraft ? allAircraft.filter(function (aircraft) {
         return validPoint(aircraft) && Math.max(0, now - Number(aircraft.last_seen || 0)) <= MAP_WINDOW_SECONDS;
       }).slice(0, MAP_AIRCRAFT_LIMIT) : [];
-      const visibleIds = new Set();
-
+      const zoom = map.getZoom();
+      const groups = new Map();
       visibleAircraft.forEach(function (aircraft) {
-          const id = String(aircraft.icao || "");
-          if (!id) return;
-          visibleIds.add(id);
-          const age = Math.max(0, now - Number(aircraft.last_seen || 0));
-          const active = age < 300;
+        const point = map.project([Number(aircraft.lat), Number(aircraft.lon)], zoom);
+        const key = zoom >= 12
+          ? "plane:" + String(aircraft.icao || "")
+          : "cluster:" + zoom + ":" + Math.floor(point.x / CLUSTER_CELL_PX) + ":" + Math.floor(point.y / CLUSTER_CELL_PX);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(aircraft);
+        lastBounds.push([Number(aircraft.lat), Number(aircraft.lon)]);
+      });
+
+      const markerIds = new Set();
+      const vectorIds = new Set();
+      groups.forEach(function (members, groupKey) {
+        const clustered = members.length > 1;
+        const aircraft = members[0];
+        const aircraftId = String(aircraft.icao || "");
+        const markerId = clustered ? groupKey : "plane:" + aircraftId;
+        const lat = members.reduce(function (total, item) { return total + Number(item.lat); }, 0) / members.length;
+        const lon = members.reduce(function (total, item) { return total + Number(item.lon); }, 0) / members.length;
+        const activeCount = members.filter(function (item) {
+          return Math.max(0, now - Number(item.last_seen || 0)) < 300;
+        }).length;
+        let icon;
+        let popup;
+
+        if (clustered) {
+          const labels = members.slice(0, 6).map(function (item) { return escapeHtml(item.callsign || item.icao); }).join(", ");
+          const remainder = members.length > 6 ? " +" + (members.length - 6) + " more" : "";
+          icon = L.divIcon({
+            className: "", iconSize: [40, 40], iconAnchor: [20, 20],
+            html: '<div class="aircraft-cluster' + (activeCount ? "" : " stale") + '">' + members.length + '</div>'
+          });
+          popup = '<div class="popup-title">' + members.length + ' aircraft in this area</div>' +
+            '<div class="popup-row">' + labels + escapeHtml(remainder) + '</div>' +
+            '<div class="popup-row">' + activeCount + ' active in the last 5 minutes</div>' +
+            '<div class="popup-row muted">Zoom in to separate aircraft.</div>';
+        } else {
+          const active = activeCount > 0;
           const heading = Number(aircraft.heading || 0);
-          const signature = JSON.stringify([
-            aircraft.lat, aircraft.lon, aircraft.callsign, aircraft.alt_ft,
-            aircraft.speed_kt, heading, aircraft.last_seen, aircraft.upload_status, active
-          ]);
-          const icon = L.divIcon({
+          icon = L.divIcon({
             className: "", iconSize: [34, 34], iconAnchor: [17, 17],
             html: '<div class="plane-marker' + (active ? "" : " stale") + '"><span class="plane-glyph" style="transform:rotate(' + heading + 'deg)">✈</span></div>'
           });
-          const popup =
-            '<div class="popup-title">' + escapeHtml(aircraft.callsign || aircraft.icao) + '</div>' +
+          popup = '<div class="popup-title">' + escapeHtml(aircraft.callsign || aircraft.icao) + '</div>' +
             '<div class="popup-row">ICAO <span class="mono">' + escapeHtml(aircraft.icao) + '</span></div>' +
             '<div class="popup-row">' + number(aircraft.alt_ft) + ' ft · ' + number(aircraft.speed_kt) + ' kt · ' + heading + '°</div>' +
             '<div class="popup-row">Last seen ' + escapeHtml(epochRelative(aircraft.last_seen)) + '</div>' +
             '<div class="popup-row">WDG ' + escapeHtml(aircraft.upload_status) + '</div>';
-          const existing = aircraftMarkers.get(id);
-          if (!existing) {
-            const marker = L.marker([Number(aircraft.lat), Number(aircraft.lon)], { icon: icon }).bindPopup(popup).addTo(aircraftLayer);
-            aircraftMarkers.set(id, { marker: marker, signature: signature });
-          } else if (existing.signature !== signature) {
-            existing.marker.setLatLng([Number(aircraft.lat), Number(aircraft.lon)]).setIcon(icon).setPopupContent(popup);
-            existing.signature = signature;
-          }
-          lastBounds.push([Number(aircraft.lat), Number(aircraft.lon)]);
           if (layerState.vectors && active && Number(aircraft.speed_kt || 0) > 0) {
+            vectorIds.add(aircraftId);
             const points = [[Number(aircraft.lat), Number(aircraft.lon)], projectedPoint(aircraft)];
             const vectorSignature = JSON.stringify(points);
-            const existingVector = headingVectors.get(id);
+            const existingVector = headingVectors.get(aircraftId);
             if (!existingVector) {
               const vector = L.polyline(points, { color: "#ffc857", weight: 1.2, opacity: .58, dashArray: "4 7" }).addTo(vectorLayer);
-              headingVectors.set(id, { vector: vector, signature: vectorSignature });
+              headingVectors.set(aircraftId, { vector: vector, signature: vectorSignature });
             } else if (existingVector.signature !== vectorSignature) {
               existingVector.vector.setLatLngs(points);
               existingVector.signature = vectorSignature;
             }
           }
+        }
+
+        markerIds.add(markerId);
+        const signature = JSON.stringify([lat, lon, activeCount, members]);
+        const existing = aircraftMarkers.get(markerId);
+        if (!existing) {
+          const marker = L.marker([lat, lon], { icon: icon }).bindPopup(popup).addTo(aircraftLayer);
+          aircraftMarkers.set(markerId, { marker: marker, signature: signature });
+        } else if (existing.signature !== signature) {
+          existing.marker.setLatLng([lat, lon]).setIcon(icon).setPopupContent(popup);
+          existing.signature = signature;
+        }
       });
 
       aircraftMarkers.forEach(function (entry, id) {
-        if (!visibleIds.has(id)) { aircraftLayer.removeLayer(entry.marker); aircraftMarkers.delete(id); }
+        if (!markerIds.has(id)) { aircraftLayer.removeLayer(entry.marker); aircraftMarkers.delete(id); }
       });
       headingVectors.forEach(function (entry, id) {
-        const aircraft = visibleAircraft.find(function (item) { return String(item.icao || "") === id; });
-        const active = aircraft && Math.max(0, now - Number(aircraft.last_seen || 0)) < 300;
-        if (!layerState.vectors || !active || Number(aircraft.speed_kt || 0) <= 0) {
+        if (!vectorIds.has(id)) {
           vectorLayer.removeLayer(entry.vector);
           headingVectors.delete(id);
         }
       });
-      element("map-status").textContent = visibleAircraft.length + " recent · 6h window";
+      element("map-status").textContent = visibleAircraft.length + " aircraft · " + groups.size + " map groups · 6h";
       if (!initialFit && lastBounds.length) { initialFit = true; fitMap(); }
     }
 
