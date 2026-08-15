@@ -14,9 +14,9 @@ and this container handles 1090 MHz aircraft.
 - Uploads batches using WDG Wars' `aircraft` schema and HMAC-SHA256 envelope.
 - Records confirmed `aircraft_imported` and `aircraft_already_seen` results.
 - Serves a public read-only Royal City Recon dashboard with a dark interactive
-  map, coarse recent-activity grid, live aircraft, verified collection totals,
-  badges, profile progress, live receiver-rate meters, and persistent WDG
-  upload statistics.
+  map, actual WDG territory cells for the bounded local region, coarse recent
+  activity, live aircraft, verified collection totals, badges, profile progress,
+  live receiver-rate meters, and persistent WDG upload statistics.
 - Selects one exact RTL-SDR by USB vendor, product and serial; startup fails if
   the identity is absent or ambiguous.
 - Receives only. It does not transmit radio, scan Wi-Fi, read Biscuit data, or
@@ -55,6 +55,12 @@ belong to the linked member profile; the API does not claim they are gang-wide.
 The same scoped snapshot also shows reinforcement tiers, credits and bounties,
 member rank when reported, and the rolling new-AP allowance without exposing
 the account identity or precise capture locations.
+
+The square territory layer is a cached, read-only
+`/api/member-territories` snapshot covering the Guelph–Waterloo–Cambridge
+region. It retains WDG's 0.02-degree cell geometry, team names/colors, aggregate
+AP/contributor/tower counts, and source freshness while removing WDG user IDs.
+The public service never proxies arbitrary WDG map requests.
 
 The port binds only to the detected LAN address, not every host interface, and
 does not conflict with the existing Pi services on ports 8080 or 8090. The

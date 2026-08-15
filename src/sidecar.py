@@ -28,11 +28,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
+DEFAULT_TERRITORY_URL = (
+    "https://wdgwars.pl/api/member-territories"
+    "?compact=1&zoom=10&bbox=-80.85%2C43.20%2C-79.65%2C43.80"
+)
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
 API_KEY_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
+COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def utc_now() -> str:
@@ -423,6 +428,72 @@ def public_timestamp(value) -> str:
         return ""
 
 
+def public_wdg_territory(data: dict, own_team_id: int) -> dict:
+    """Return bounded game cells without WDG user or device identities."""
+    try:
+        grid_lat = float(data.get("grid_lat"))
+        grid_lon = float(data.get("grid_lng"))
+    except (TypeError, ValueError):
+        grid_lat = grid_lon = 0.02
+    if not 0 < grid_lat <= 1:
+        grid_lat = 0.02
+    if not 0 < grid_lon <= 1:
+        grid_lon = 0.02
+
+    gangs = data.get("gangs") if isinstance(data.get("gangs"), dict) else {}
+    cells = []
+    team_ids = set()
+    raw_cells = data.get("cells") if isinstance(data.get("cells"), list) else []
+    for raw in raw_cells[:2000]:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            lat = float(raw.get("lat"))
+            lon = float(raw.get("lng"))
+        except (TypeError, ValueError):
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        team_id = nonnegative_int(raw.get("gang_id"))
+        team_ids.add(team_id)
+        cells.append({
+            "lat": round(lat, 6),
+            "lon": round(lon, 6),
+            "team_id": team_id,
+            "aps": nonnegative_int(raw.get("count")),
+            "contributors": nonnegative_int(raw.get("users")),
+            "relays": nonnegative_int(raw.get("relay")),
+            "towers": nonnegative_int(raw.get("towers")),
+            "ours": team_id == own_team_id,
+        })
+    cells.sort(key=lambda item: (item["lat"], item["lon"], item["team_id"]))
+
+    teams = {}
+    for team_id in sorted(team_ids):
+        raw = gangs.get(str(team_id))
+        raw = raw if isinstance(raw, dict) else {}
+        color = str(raw.get("color", "")).strip()
+        teams[str(team_id)] = {
+            "id": team_id,
+            "name": str(raw.get("name", "")).strip()[:80] or f"Team #{team_id}",
+            "color": color if COLOR_RE.fullmatch(color) else "#6b7280",
+            "members": nonnegative_int(raw.get("members")),
+        }
+
+    return {
+        "source": "WDG Wars /api/member-territories",
+        "region": "Guelph–Waterloo–Cambridge",
+        "refreshed_at": utc_now(),
+        "grid_through": public_timestamp(data.get("grid_through")),
+        "grid_lat": grid_lat,
+        "grid_lon": grid_lon,
+        "team_cells": sum(1 for cell in cells if cell["ours"]),
+        "teams": teams,
+        "cells": cells,
+        "note": "Bounded WDG ownership grid; user identities removed.",
+    }
+
+
 def public_wdg_profile(profile: dict) -> dict:
     """Return a public, aggregation-first subset of the authenticated profile."""
     devices = profile.get("devices") if isinstance(profile.get("devices"), list) else []
@@ -533,6 +604,7 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
         return
     upload_url = os.getenv("WDGWARS_API_URL", DEFAULT_UPLOAD_URL)
     me_url = os.getenv("WDGWARS_ME_URL", DEFAULT_ME_URL)
+    territory_url = os.getenv("WDGWARS_TERRITORY_URL", DEFAULT_TERRITORY_URL)
     interval = env_int("UPLOAD_INTERVAL_SECONDS", 60, 15, 3600)
     batch_size = env_int("UPLOAD_BATCH_SIZE", 100, 1, 500)
     profile_interval = env_int("WDGWARS_PROFILE_INTERVAL_SECONDS", 300, 60, 3600)
@@ -547,10 +619,23 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
                 if not profile.get("ok"):
                     raise RuntimeError(f"WDG Wars authentication failed: {profile.get('error', 'unknown error')}")
                 profile_refreshed_at = time.time()
+                public_profile = public_wdg_profile(profile)
+                previous_wdg = state.snapshot().get("wdg") or {}
+                try:
+                    territory = request_json(territory_url, api_key, timeout=20)
+                    if not territory.get("ok"):
+                        raise RuntimeError("WDG territory grid rejected")
+                    public_profile["territory"] = public_wdg_territory(
+                        territory, public_profile["team"]["id"]
+                    )
+                except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+                    if isinstance(previous_wdg.get("territory"), dict):
+                        public_profile["territory"] = previous_wdg["territory"]
+                    print(f"WDG territory grid unavailable: {exc}", file=sys.stderr, flush=True)
                 state.set(
                     auth_ok=True,
                     upload_state="ready",
-                    wdg=public_wdg_profile(profile),
+                    wdg=public_profile,
                     last_error=None,
                 )
 
