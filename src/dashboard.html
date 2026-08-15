@@ -289,6 +289,7 @@
     .map-legend { position: absolute; z-index: 500; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(4, 10, 14, .88); color: #b7c7c3; font-size: .63rem; pointer-events: none; }
     .legend-key { display: flex; align-items: center; gap: 5px; }
     .legend-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--swatch); }
+    .legend-swatch.territory { background: linear-gradient(135deg, #01c7fc 0 50%, #a86cff 50%); }
 
     .aircraft-panel { min-height: 0; display: flex; flex-direction: column; }
     .table-scroll { min-height: 0; overflow: auto; }
@@ -423,7 +424,7 @@
             <div class="mini-stat"><strong id="reinforce-two">—</strong><span>level 2</span></div>
             <div class="mini-stat"><strong id="reinforce-three">—</strong><span>level 3</span></div>
             <div class="mini-stat"><strong id="badge-total">—</strong><span>badges</span></div>
-            <div class="mini-stat"><strong id="activity-cell-total">—</strong><span>recent cells</span></div>
+            <div class="mini-stat"><strong id="territory-cell-total">—</strong><span>area cells</span></div>
           </div>
         </div>
       </section>
@@ -431,8 +432,11 @@
       <section class="panel">
         <div class="panel-header"><span class="panel-title">Map layers</span><span class="panel-tag">Live</span></div>
         <div class="section-body layer-list">
-          <button class="layer-toggle" data-layer="grid" aria-pressed="true" style="--layer-color:var(--purple)">
-            <span class="layer-icon">⬡</span><span><span class="layer-name">Activity grid</span><span class="layer-note">Coarse recent capture cells</span></span><span class="switch"></span>
+          <button class="layer-toggle" data-layer="territory" aria-pressed="true" style="--layer-color:var(--cyan)">
+            <span class="layer-icon">▦</span><span><span class="layer-name">WDG territory grid</span><span class="layer-note">Actual game ownership cells</span></span><span class="switch"></span>
+          </button>
+          <button class="layer-toggle" data-layer="activity" aria-pressed="false" style="--layer-color:var(--purple)">
+            <span class="layer-icon">⬡</span><span><span class="layer-name">Recent activity</span><span class="layer-note">Coarse capture cells</span></span><span class="switch"></span>
           </button>
           <button class="layer-toggle" data-layer="aircraft" aria-pressed="true" style="--layer-color:var(--cyan)">
             <span class="layer-icon">✈</span><span><span class="layer-name">ADS‑B aircraft</span><span class="layer-note">Positioned Pi 5 detections</span></span><span class="switch"></span>
@@ -453,7 +457,7 @@
         </div>
       </section>
 
-      <section class="panel"><div class="section-body"><div class="privacy-note"><strong>Public map privacy</strong><br>Capture locations are grouped into roughly 1 km activity cells. The grid shows recent activity, not territory ownership, and exposes no SSIDs or BSSIDs.</div></div></section>
+      <section class="panel"><div class="section-body"><div class="privacy-note"><strong>Public map privacy</strong><br>The territory layer is a bounded WDG game-grid snapshot with user IDs removed. Recent captures remain grouped into coarse cells; no SSIDs, BSSIDs, device names, or raw capture positions are exposed.</div></div></section>
     </aside>
 
     <section class="center-column">
@@ -465,6 +469,7 @@
           <button class="map-action" id="fit-map" type="button">Fit layers</button>
         </div>
         <div class="map-legend" aria-hidden="true">
+          <span class="legend-key"><span class="legend-swatch territory"></span>WDG territory cell</span>
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--purple)"></span>Recent activity cell</span>
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--cyan);border-radius:50%"></span>Aircraft / clusters (6h)</span>
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--gold)"></span>Heading vector</span>
@@ -546,6 +551,7 @@
         <div class="panel-header"><span class="panel-title">Data sources</span><span class="panel-tag">Read-only</span></div>
         <div class="section-body source-box">
           <strong>WDG totals and team affiliation:</strong> authenticated member <span class="mono">/api/me</span>, reduced to a safe public snapshot. These are linked-profile totals, not a gang-wide leaderboard.<br>
+          <strong>Territory grid:</strong> bounded regional <span class="mono">/api/member-territories</span> snapshot with WDG user IDs removed · data through <span id="territory-refreshed">waiting</span>.<br>
           <strong>Profile progress:</strong> reinforcement tiers, rolling AP allowance, credits, bounties, and member rank when WDG reports it.<br>
           <strong>Aircraft:</strong> this Pi 5 RTL‑SDR, persistent local log, and upload acknowledgements.<br>
           <strong>Refresh:</strong> page 10s while visible · WDG profile <span id="wdg-refreshed">waiting</span>.<br>
@@ -598,15 +604,17 @@
       instrument.classList.add("tick");
     };
 
-    const layerState = { grid: true, aircraft: true, vectors: true };
+    const layerState = { territory: true, activity: false, aircraft: true, vectors: true };
     let latestData = null;
     let initialFit = false;
     let map = null;
     let aircraftLayer = null;
     let vectorLayer = null;
-    let gridLayer = null;
+    let territoryLayer = null;
+    let activityLayer = null;
     let lastBounds = [];
-    let gridSignature = "";
+    let territorySignature = "";
+    let activitySignature = "";
     let tableSignature = "";
     let wdgSignature = "";
     let refreshTimer = null;
@@ -619,7 +627,8 @@
       if (!window.L) throw new Error("Map library did not load");
       map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([43.54, -80.25], 9);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
-      gridLayer = L.layerGroup().addTo(map);
+      territoryLayer = L.layerGroup().addTo(map);
+      activityLayer = L.layerGroup().addTo(map);
       vectorLayer = L.layerGroup().addTo(map);
       aircraftLayer = L.layerGroup().addTo(map);
       map.on("moveend", updateMapReadout);
@@ -666,13 +675,56 @@
       if (!map) return;
       lastBounds = [];
       const wdg = data.runtime.wdg || {};
-      const cells = wdg.activity_grid && Array.isArray(wdg.activity_grid.cells) ? wdg.activity_grid.cells : [];
-      const nextGridSignature = JSON.stringify([layerState.grid, cells]);
+      const territory = wdg.territory || {};
+      const territoryCells = Array.isArray(territory.cells) ? territory.cells : [];
+      const territoryTeams = territory.teams || {};
+      const gridLat = Number(territory.grid_lat || .02);
+      const gridLon = Number(territory.grid_lon || .02);
+      const ownTerritoryBounds = [];
+      const nextTerritorySignature = [
+        layerState.territory, territory.grid_through, territoryCells.length, Object.keys(territoryTeams).length
+      ].join("|");
 
-      if (nextGridSignature !== gridSignature) {
-        gridSignature = nextGridSignature;
-        gridLayer.clearLayers();
-        if (layerState.grid) cells.forEach(function (cell) {
+      if (nextTerritorySignature !== territorySignature) {
+        territorySignature = nextTerritorySignature;
+        territoryLayer.clearLayers();
+        if (layerState.territory) territoryCells.forEach(function (cell) {
+          if (!validPoint(cell)) return;
+          const team = territoryTeams[String(cell.team_id)] || {};
+          const color = /^#[0-9a-f]{6}$/i.test(team.color || "") ? team.color : "#6b7280";
+          const ours = cell.ours === true;
+          const normal = { color: color, weight: ours ? 1.35 : .7, opacity: ours ? .95 : .72, fillColor: color, fillOpacity: ours ? .42 : .22 };
+          const rectangle = L.rectangle([
+            [Number(cell.lat), Number(cell.lon)],
+            [Number(cell.lat) + gridLat, Number(cell.lon) + gridLon]
+          ], normal);
+          rectangle.bindPopup(
+            '<div class="popup-title">' + escapeHtml(team.name || ("Team #" + cell.team_id)) + (ours ? " · Royal City Recon" : "") + '</div>' +
+            '<div class="popup-row"><strong>' + number(cell.aps) + '</strong> APs · ' + number(cell.contributors) + ' contributors</div>' +
+            '<div class="popup-row">' + number(cell.towers) + ' towers · ' + number(cell.relays) + ' relays</div>' +
+            '<div class="popup-row">Team members: ' + number(team.members) + '</div>' +
+            '<div class="popup-row muted">WDG grid data through ' + escapeHtml(relativeTime(territory.grid_through)) + '</div>'
+          );
+          rectangle.on({
+            mouseover: function (event) { event.target.setStyle({ weight: 2, fillOpacity: ours ? .58 : .38 }); },
+            mouseout: function (event) { event.target.setStyle(normal); }
+          });
+          rectangle.addTo(territoryLayer);
+        });
+      }
+      if (layerState.territory) territoryCells.filter(validPoint).forEach(function (cell) {
+        const center = [Number(cell.lat) + gridLat / 2, Number(cell.lon) + gridLon / 2];
+        lastBounds.push(center);
+        if (cell.ours === true) ownTerritoryBounds.push(center);
+      });
+
+      const cells = wdg.activity_grid && Array.isArray(wdg.activity_grid.cells) ? wdg.activity_grid.cells : [];
+      const nextActivitySignature = JSON.stringify([layerState.activity, cells]);
+
+      if (nextActivitySignature !== activitySignature) {
+        activitySignature = nextActivitySignature;
+        activityLayer.clearLayers();
+        if (layerState.activity) cells.forEach(function (cell) {
           if (!validPoint(cell)) return;
           const intensity = Math.min(1, .22 + Number(cell.aps || 0) / 28);
           const polygon = L.polygon(hexagon(Number(cell.lat), Number(cell.lon), .0062), {
@@ -688,13 +740,13 @@
             '<div class="popup-row">Last activity ' + escapeHtml(relativeTime(cell.last_seen)) + '</div>' +
             '<div class="popup-row muted">Coarse cell; not territory ownership</div>'
           );
-          polygon.addTo(gridLayer);
+          polygon.addTo(activityLayer);
           L.circleMarker([Number(cell.lat), Number(cell.lon)], {
             radius: 3 + Math.min(5, Number(cell.events || 0)), color: "#d5b8ff", weight: 1, fillColor: "#a86cff", fillOpacity: .85
-          }).addTo(gridLayer);
+          }).addTo(activityLayer);
         });
       }
-      if (layerState.grid) cells.filter(validPoint).forEach(function (cell) {
+      if (layerState.activity) cells.filter(validPoint).forEach(function (cell) {
         lastBounds.push([Number(cell.lat), Number(cell.lon)]);
       });
 
@@ -789,8 +841,15 @@
           headingVectors.delete(id);
         }
       });
-      element("map-status").textContent = visibleAircraft.length + " aircraft · " + groups.size + " map groups · 6h";
-      if (!initialFit && lastBounds.length) { initialFit = true; fitMap(); }
+      element("map-status").textContent = visibleAircraft.length + " aircraft · " + groups.size + " groups · " + territoryCells.length + " WDG cells · " + number(territory.team_cells) + " ours";
+      if (!initialFit && lastBounds.length) {
+        initialFit = true;
+        if (ownTerritoryBounds.length) {
+          map.fitBounds(L.latLngBounds(ownTerritoryBounds).pad(.08), { maxZoom: 11, animate: false });
+        } else {
+          fitMap();
+        }
+      }
     }
 
     function renderAircraft(data) {
@@ -825,7 +884,6 @@
       const grid = wdg.activity_grid || {};
       const cells = Array.isArray(grid.cells) ? grid.cells : [];
       const list = element("activity-list");
-      element("activity-cell-total").textContent = number(cells.length);
       element("activity-total").textContent = cells.length + " cells";
       if (!cells.length) {
         list.innerHTML = '<div class="empty">No recent public activity cells.</div>';
@@ -924,6 +982,7 @@
       const stats = wdg.stats || {};
       const team = wdg.team || {};
       const adsb = wdg.adsb || {};
+      const territory = wdg.territory || {};
       const receiverReady = runtime.dump1090_running === true;
       const streamReady = runtime.sbs_connected === true;
       const apiReady = runtime.auth_ok === true;
@@ -955,6 +1014,7 @@
       element("team-score").textContent = stats.total == null ? "—" : number(stats.total);
       element("today-total").textContent = stats.recent_today == null ? "—" : number(stats.recent_today);
       element("reinforced-total").textContent = stats.reinforce_total == null ? "—" : number(stats.reinforce_total);
+      element("territory-cell-total").textContent = territory.source ? number(territory.team_cells) : "—";
       renderTelemetry(data, wdg);
 
       element("credit-number").textContent = stats.aircraft == null ? "—" : number(stats.aircraft);
@@ -966,12 +1026,13 @@
       element("local-sent").textContent = number(counts.uploaded);
       element("upload-batches").textContent = number(uploads.batches);
       element("wdg-refreshed").textContent = wdg.refreshed_at ? relativeTime(wdg.refreshed_at) : "waiting";
+      element("territory-refreshed").textContent = territory.grid_through ? relativeTime(territory.grid_through) : "waiting";
       element("version").textContent = runtime.version || "unknown";
       element("updated").textContent = "Updated " + new Date(data.generated_at).toLocaleTimeString();
       const error = element("error");
       error.hidden = !runtime.last_error;
       error.textContent = runtime.last_error || "";
-      const nextWdgSignature = JSON.stringify(wdg);
+      const nextWdgSignature = [wdg.refreshed_at, territory.grid_through, territory.refreshed_at].join("|");
       if (nextWdgSignature !== wdgSignature) {
         wdgSignature = nextWdgSignature;
         renderCollections(stats);

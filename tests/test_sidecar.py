@@ -126,6 +126,35 @@ class SidecarTests(unittest.TestCase):
         self.assertNotIn("43.42123456", encoded)
         self.assertNotIn("user_id", encoded)
 
+    def test_public_wdg_territory_matches_game_grid_and_redacts_users(self):
+        territory = {
+            "ok": True,
+            "grid_lat": 0.02,
+            "grid_lng": 0.02,
+            "grid_through": "2026-08-15T15:21:17Z",
+            "gangs": {
+                "581": {"name": "Royal City Recon", "color": "#01c7fc", "members": 2},
+                "292": {"name": "Other Team", "color": "not-a-color", "members": 4},
+            },
+            "cells": [
+                {"lat": 43.4, "lng": -80.38, "gang_id": 581, "count": 2414, "users": 2, "relay": 1, "towers": 8, "user_id": 991},
+                {"lat": 43.42, "lng": -80.36, "gang_id": 292, "count": 63, "users": 1, "relay": 0, "towers": 0, "user_id": 992},
+                {"lat": 999, "lng": 999, "gang_id": 581, "count": 1},
+            ],
+        }
+        public = sidecar.public_wdg_territory(territory, 581)
+        encoded = json.dumps(public)
+        self.assertEqual((public["grid_lat"], public["grid_lon"]), (0.02, 0.02))
+        self.assertEqual(public["grid_through"], "2026-08-15T15:21:17+00:00")
+        self.assertEqual(public["team_cells"], 1)
+        self.assertEqual(len(public["cells"]), 2)
+        self.assertEqual(public["cells"][0]["aps"], 2414)
+        self.assertTrue(public["cells"][0]["ours"])
+        self.assertEqual(public["teams"]["581"]["color"], "#01c7fc")
+        self.assertEqual(public["teams"]["292"]["color"], "#6b7280")
+        self.assertNotIn("user_id", encoded)
+        self.assertNotIn("991", encoded)
+
     def test_store_deduplicates_by_icao_and_persists_upload_state(self):
         with tempfile.TemporaryDirectory() as directory:
             store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
@@ -201,6 +230,9 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("const CLUSTER_CELL_PX = 72", dashboard)
         self.assertIn('class="aircraft-cluster', dashboard)
         self.assertIn('id="meter-rate"', dashboard)
+        self.assertIn('data-layer="territory"', dashboard)
+        self.assertIn("L.rectangle", dashboard)
+        self.assertIn("territorySignature", dashboard)
         self.assertIn("previousMessageSample", dashboard)
         self.assertIn("renderProfileProgress", dashboard)
         self.assertIn("if (refreshInFlight) return", dashboard)
