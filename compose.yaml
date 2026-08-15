@@ -1,0 +1,48 @@
+services:
+  aircraft-sidecar:
+    image: ${IMAGE:-ghcr.io/n30nex/canadaverse-wdg-aircraft-sidecar:latest}
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    group_add:
+      - "${RTLSDR_GID:-46}"
+    device_cgroup_rules:
+      - "c 189:* rw"
+    environment:
+      DATA_DIR: /data
+      SDR_VENDOR_ID: ${SDR_VENDOR_ID:-0bda}
+      SDR_PRODUCT_ID: ${SDR_PRODUCT_ID:-2838}
+      SDR_SERIAL: ${SDR_SERIAL:-00000001}
+      DUMP1090_GAIN: ${DUMP1090_GAIN:-}
+      DUMP1090_PPM: ${DUMP1090_PPM:-}
+      UPLOAD_INTERVAL_SECONDS: ${UPLOAD_INTERVAL_SECONDS:-60}
+      UPLOAD_BATCH_SIZE: ${UPLOAD_BATCH_SIZE:-100}
+      UPLOAD_ENABLED: ${UPLOAD_ENABLED:-true}
+      WDGWARS_API_KEY_FILE: /run/secrets/wdgwars_api_key
+      WDGWARS_API_URL: https://wdgwars.pl/api/upload/
+      WDGWARS_ME_URL: https://wdgwars.pl/api/me
+    secrets:
+      - wdgwars_api_key
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - aircraft-data:/data
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    stop_grace_period: 20s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  wdgwars_api_key:
+    file: ./.secrets/wdgwars_api_key
+
+volumes:
+  aircraft-data:

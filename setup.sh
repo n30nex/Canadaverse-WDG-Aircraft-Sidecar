@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VID="${SDR_VENDOR_ID:-0bda}"
+PID="${SDR_PRODUCT_ID:-2838}"
+EXPECTED_SERIAL="${SDR_SERIAL:-00000001}"
+
+for command in docker lsusb udevadm; do
+  command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
+done
+docker compose version >/dev/null
+
+mapfile -t matches < <(lsusb -d "${VID}:${PID}")
+if [[ ${#matches[@]} -ne 1 ]]; then
+  echo "Expected exactly one SDR ${VID}:${PID}; found ${#matches[@]}. Nothing changed." >&2
+  exit 1
+fi
+
+bus="$(awk '{print $2}' <<<"${matches[0]}")"
+device="$(tr -d ':' <<<"$(awk '{print $4}' <<<"${matches[0]}")")"
+node="/dev/bus/usb/${bus}/${device}"
+serial="$(udevadm info --query=property --name="$node" | sed -n 's/^ID_SERIAL_SHORT=//p')"
+model="$(udevadm info --query=property --name="$node" | sed -n 's/^ID_MODEL=//p')"
+if [[ "$serial" != "$EXPECTED_SERIAL" ]]; then
+  echo "Found ${model:-RTL-SDR}, but serial is '$serial' instead of '$EXPECTED_SERIAL'. Nothing changed." >&2
+  exit 1
+fi
+
+plugdev_gid="$(getent group plugdev | cut -d: -f3)"
+[[ -n "$plugdev_gid" ]] || { echo "The host has no plugdev group." >&2; exit 1; }
+
+umask 077
+mkdir -p .secrets
+if [[ ! -s .secrets/wdgwars_api_key ]]; then
+  read -r -s -p "WDG Wars 64-character API key: " api_key
+  echo
+  [[ "$api_key" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo "Invalid API key; nothing started." >&2; exit 1; }
+  printf '%s' "$api_key" > .secrets/wdgwars_api_key
+else
+  api_key="$(<.secrets/wdgwars_api_key)"
+  [[ "$api_key" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo "Saved API key is invalid; nothing changed." >&2; exit 1; }
+fi
+unset api_key
+
+rule="SUBSYSTEM==\"usb\", ATTR{idVendor}==\"${VID}\", ATTR{idProduct}==\"${PID}\", ATTR{serial}==\"${serial}\", MODE=\"0660\", GROUP=\"plugdev\""
+printf '%s\n' "$rule" | sudo tee /etc/udev/rules.d/99-wdgwars-aircraft-sidecar.rules >/dev/null
+sudo udevadm control --reload-rules
+sudo chgrp plugdev "$node"
+sudo chmod 0660 "$node"
+
+if [[ ! -f .env ]]; then
+  sed \
+    -e "s/^SDR_VENDOR_ID=.*/SDR_VENDOR_ID=${VID}/" \
+    -e "s/^SDR_PRODUCT_ID=.*/SDR_PRODUCT_ID=${PID}/" \
+    -e "s/^SDR_SERIAL=.*/SDR_SERIAL=${serial}/" \
+    -e "s/^RTLSDR_GID=.*/RTLSDR_GID=${plugdev_gid}/" \
+    .env.example > .env
+  chmod 0600 .env
+fi
+
+echo "Starting Canadaverse WDG Aircraft Sidecar with ${model:-RTL-SDR} (${VID}:${PID}, serial ${serial})"
+sudo docker compose pull
+sudo docker compose up -d
+
+for _ in {1..24}; do
+  container_id="$(sudo docker compose ps -q aircraft-sidecar)"
+  health="$(sudo docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' "$container_id" 2>/dev/null || true)"
+  [[ "$health" == "healthy" ]] && break
+  [[ "$health" == "unhealthy" ]] && break
+  sleep 5
+done
+
+sudo docker compose ps
+if [[ "$health" != "healthy" ]]; then
+  echo "Sidecar did not become healthy. Recent logs:" >&2
+  sudo docker compose logs --tail=40 aircraft-sidecar >&2
+  exit 1
+fi
+echo "Ready. Aircraft are being logged and submitted to WDG Wars."
