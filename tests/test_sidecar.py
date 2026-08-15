@@ -132,7 +132,7 @@ class PackagingTests(unittest.TestCase):
         root = MODULE_PATH.parents[1]
         compose = (root / "compose.yaml").read_text()
         setup = (root / "setup.sh").read_text()
-        self.assertIn('${WDGWARS_GID:-46}', compose)
+        self.assertIn('${WDGWARS_GID:?Run ./setup.sh to create the secret group}', compose)
         self.assertIn('secret_group="wdgwars-aircraft"', setup)
         self.assertIn('chgrp "$secret_group" .secrets/wdgwars_api_key', setup)
         self.assertIn('chmod 0640 .secrets/wdgwars_api_key', setup)

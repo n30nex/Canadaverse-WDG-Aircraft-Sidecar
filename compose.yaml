@@ -12,7 +12,7 @@ services:
       - no-new-privileges:true
     group_add:
       - "${RTLSDR_GID:-46}"
-      - "${WDGWARS_GID:-46}"
+      - "${WDGWARS_GID:?Run ./setup.sh to create the secret group}"
     device_cgroup_rules:
       - "c 189:* rw"
     environment:
