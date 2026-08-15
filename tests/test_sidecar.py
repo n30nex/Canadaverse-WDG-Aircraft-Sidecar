@@ -146,7 +146,9 @@ class SidecarTests(unittest.TestCase):
             self.assertEqual((recent[0]["icao"], recent[0]["callsign"]), ("C0FFEE", "ACA123"))
             state = sidecar.RuntimeState(Path(directory) / "status.json")
             state.set(auth_ok=True, messages=42)
-            dashboard = sidecar.dashboard_payload(store, state)
+            with patch.object(store, "recent", wraps=store.recent) as recent:
+                dashboard = sidecar.dashboard_payload(store, state)
+                recent.assert_called_once_with(200)
             self.assertEqual(dashboard["counts"]["uploaded"], 1)
             self.assertEqual(dashboard["uploads"]["imported"], 1)
             self.assertEqual(dashboard["runtime"]["messages"], 42)
@@ -184,6 +186,15 @@ class SidecarTests(unittest.TestCase):
 
 
 class PackagingTests(unittest.TestCase):
+    def test_dashboard_refresh_is_bounded_and_non_overlapping(self):
+        dashboard = (MODULE_PATH.parent / "dashboard.html").read_text()
+        self.assertIn("const MAP_AIRCRAFT_LIMIT = 120", dashboard)
+        self.assertIn("const CLUSTER_CELL_PX = 72", dashboard)
+        self.assertIn('class="aircraft-cluster', dashboard)
+        self.assertIn("if (refreshInFlight) return", dashboard)
+        self.assertIn('document.addEventListener("visibilitychange"', dashboard)
+        self.assertNotIn("setInterval(refresh", dashboard)
+
     def test_setup_grants_secret_to_only_the_container_group(self):
         root = MODULE_PATH.parents[1]
         compose = (root / "compose.yaml").read_text()

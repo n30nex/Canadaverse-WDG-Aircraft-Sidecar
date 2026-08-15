@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
@@ -579,7 +579,7 @@ def dashboard_payload(store: Store, state: RuntimeState) -> dict:
         "runtime": state.snapshot(),
         "counts": store.counts(),
         "uploads": store.upload_stats(),
-        "aircraft": store.recent(),
+        "aircraft": store.recent(200),
     }
 
 
