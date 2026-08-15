@@ -14,7 +14,7 @@ RUN git init /src/dump1090 \
 
 FROM python:3.13-slim-trixie
 
-ARG VERSION=0.3.2
+ARG VERSION=0.3.3
 LABEL org.opencontainers.image.title="Canadaverse WDG Aircraft Sidecar" \
       org.opencontainers.image.description="Passive ADS-B logger and WDG Wars uploader" \
       org.opencontainers.image.source="https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar" \

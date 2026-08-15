@@ -77,6 +77,10 @@ class SidecarTests(unittest.TestCase):
             "recent_7d": 16480,
             "recent_today": 3,
             "reinforce_total": 1002,
+            "reinforce": {"2": 573, "3": 429},
+            "credits": {"balance": 42, "lifetime_earned": 91, "bounties_completed": 3},
+            "your_rank": {"today": 5, "week": 12, "all_time": None, "top_n": 50},
+            "new_ap_limit": {"used": 13514, "remaining": 486486, "cap": 500000, "window": "24h_rolling"},
             "badges": ["plane_spotter", "gang_member"],
             "devices": [
                 {"device_name": "private-phone", "networks": 100},
@@ -108,6 +112,11 @@ class SidecarTests(unittest.TestCase):
         encoded = json.dumps(public)
         self.assertEqual(public["team"]["name"], "Royal City Recon")
         self.assertEqual(public["stats"]["aircraft"], 14)
+        self.assertEqual(public["scope"], "linked_profile")
+        self.assertEqual(public["reinforce"], {"level_2": 573, "level_3": 429})
+        self.assertEqual(public["credits"]["bounties_completed"], 3)
+        self.assertEqual(public["rank"], {"today": 5, "week": 12, "all_time": None, "top_n": 50})
+        self.assertEqual(public["new_ap_limit"]["remaining"], 486486)
         self.assertEqual(public["adsb"]["uploads"], 13)
         self.assertEqual(public["adsb"]["last_upload"], "2026-08-15T06:18:57+00:00")
         self.assertEqual(public["activity_grid"]["cells"][0]["events"], 2)
@@ -191,6 +200,9 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("const MAP_AIRCRAFT_LIMIT = 120", dashboard)
         self.assertIn("const CLUSTER_CELL_PX = 72", dashboard)
         self.assertIn('class="aircraft-cluster', dashboard)
+        self.assertIn('id="meter-rate"', dashboard)
+        self.assertIn("previousMessageSample", dashboard)
+        self.assertIn("renderProfileProgress", dashboard)
         self.assertIn("if (refreshInFlight) return", dashboard)
         self.assertIn('document.addEventListener("visibilitychange"', dashboard)
         self.assertNotIn("setInterval(refresh", dashboard)
