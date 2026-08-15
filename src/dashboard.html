@@ -424,11 +424,12 @@
         <div id="map"></div>
         <div class="map-toolbar">
           <div class="map-readout mono" id="map-readout">43.54, -80.25 · Zoom 9</div>
-          <button class="map-action" id="fit-map" type="button">Fit activity</button>
+          <div class="map-readout" id="map-status">Waiting for aircraft</div>
+          <button class="map-action" id="fit-map" type="button">Fit layers</button>
         </div>
         <div class="map-legend" aria-hidden="true">
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--purple)"></span>Recent activity cell</span>
-          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--cyan)"></span>Active aircraft</span>
+          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--cyan)"></span>Aircraft seen in 6h</span>
           <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--gold)"></span>Heading vector</span>
         </div>
       </section>
@@ -481,7 +482,7 @@
         <div class="section-body source-box">
           <strong>WDG totals and team affiliation:</strong> authenticated member <span class="mono">/api/me</span>, reduced to a safe public snapshot. These are linked-profile totals, not a gang-wide leaderboard.<br>
           <strong>Aircraft:</strong> this Pi 5 RTL‑SDR, persistent local log, and upload acknowledgements.<br>
-          <strong>Refresh:</strong> page 5s · WDG profile <span id="wdg-refreshed">waiting</span>.<br>
+          <strong>Refresh:</strong> page 10s while visible · WDG profile <span id="wdg-refreshed">waiting</span>.<br>
           <strong>Build:</strong> <span class="mono" id="version">—</span>.
           <div class="error-text" id="error" hidden></div>
         </div>
@@ -494,6 +495,9 @@
     "use strict";
     const element = function (id) { return document.getElementById(id); };
     const number = function (value) { return Number(value || 0).toLocaleString(); };
+    const REFRESH_MS = 10000;
+    const MAP_WINDOW_SECONDS = 6 * 60 * 60;
+    const MAP_AIRCRAFT_LIMIT = 120;
     const validPoint = function (item) {
       return Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) &&
         Number(item.lat) >= -90 && Number(item.lat) <= 90 &&
@@ -528,6 +532,13 @@
     let vectorLayer = null;
     let gridLayer = null;
     let lastBounds = [];
+    let gridSignature = "";
+    let tableSignature = "";
+    let wdgSignature = "";
+    let refreshTimer = null;
+    let refreshInFlight = false;
+    const aircraftMarkers = new Map();
+    const headingVectors = new Map();
 
     function setupMap() {
       if (!window.L) throw new Error("Map library did not load");
@@ -574,15 +585,15 @@
 
     function renderMap(data) {
       if (!map) return;
-      aircraftLayer.clearLayers();
-      vectorLayer.clearLayers();
-      gridLayer.clearLayers();
       lastBounds = [];
       const wdg = data.runtime.wdg || {};
       const cells = wdg.activity_grid && Array.isArray(wdg.activity_grid.cells) ? wdg.activity_grid.cells : [];
+      const nextGridSignature = JSON.stringify([layerState.grid, cells]);
 
-      if (layerState.grid) {
-        cells.forEach(function (cell) {
+      if (nextGridSignature !== gridSignature) {
+        gridSignature = nextGridSignature;
+        gridLayer.clearLayers();
+        if (layerState.grid) cells.forEach(function (cell) {
           if (!validPoint(cell)) return;
           const intensity = Math.min(1, .22 + Number(cell.aps || 0) / 28);
           const polygon = L.polygon(hexagon(Number(cell.lat), Number(cell.lon), .0062), {
@@ -602,36 +613,74 @@
           L.circleMarker([Number(cell.lat), Number(cell.lon)], {
             radius: 3 + Math.min(5, Number(cell.events || 0)), color: "#d5b8ff", weight: 1, fillColor: "#a86cff", fillOpacity: .85
           }).addTo(gridLayer);
-          lastBounds.push([Number(cell.lat), Number(cell.lon)]);
         });
       }
+      if (layerState.grid) cells.filter(validPoint).forEach(function (cell) {
+        lastBounds.push([Number(cell.lat), Number(cell.lon)]);
+      });
 
-      if (layerState.aircraft) {
-        data.aircraft.filter(validPoint).forEach(function (aircraft) {
-          const age = Math.max(0, Date.now() / 1000 - Number(aircraft.last_seen || 0));
+      const now = Date.now() / 1000;
+      const visibleAircraft = layerState.aircraft ? data.aircraft.filter(function (aircraft) {
+        return validPoint(aircraft) && Math.max(0, now - Number(aircraft.last_seen || 0)) <= MAP_WINDOW_SECONDS;
+      }).slice(0, MAP_AIRCRAFT_LIMIT) : [];
+      const visibleIds = new Set();
+
+      visibleAircraft.forEach(function (aircraft) {
+          const id = String(aircraft.icao || "");
+          if (!id) return;
+          visibleIds.add(id);
+          const age = Math.max(0, now - Number(aircraft.last_seen || 0));
           const active = age < 300;
           const heading = Number(aircraft.heading || 0);
+          const signature = JSON.stringify([
+            aircraft.lat, aircraft.lon, aircraft.callsign, aircraft.alt_ft,
+            aircraft.speed_kt, heading, aircraft.last_seen, aircraft.upload_status, active
+          ]);
           const icon = L.divIcon({
             className: "", iconSize: [34, 34], iconAnchor: [17, 17],
             html: '<div class="plane-marker' + (active ? "" : " stale") + '"><span class="plane-glyph" style="transform:rotate(' + heading + 'deg)">✈</span></div>'
           });
-          const marker = L.marker([Number(aircraft.lat), Number(aircraft.lon)], { icon: icon });
-          marker.bindPopup(
+          const popup =
             '<div class="popup-title">' + escapeHtml(aircraft.callsign || aircraft.icao) + '</div>' +
             '<div class="popup-row">ICAO <span class="mono">' + escapeHtml(aircraft.icao) + '</span></div>' +
             '<div class="popup-row">' + number(aircraft.alt_ft) + ' ft · ' + number(aircraft.speed_kt) + ' kt · ' + heading + '°</div>' +
             '<div class="popup-row">Last seen ' + escapeHtml(epochRelative(aircraft.last_seen)) + '</div>' +
-            '<div class="popup-row">WDG ' + escapeHtml(aircraft.upload_status) + '</div>'
-          );
-          marker.addTo(aircraftLayer);
+            '<div class="popup-row">WDG ' + escapeHtml(aircraft.upload_status) + '</div>';
+          const existing = aircraftMarkers.get(id);
+          if (!existing) {
+            const marker = L.marker([Number(aircraft.lat), Number(aircraft.lon)], { icon: icon }).bindPopup(popup).addTo(aircraftLayer);
+            aircraftMarkers.set(id, { marker: marker, signature: signature });
+          } else if (existing.signature !== signature) {
+            existing.marker.setLatLng([Number(aircraft.lat), Number(aircraft.lon)]).setIcon(icon).setPopupContent(popup);
+            existing.signature = signature;
+          }
           lastBounds.push([Number(aircraft.lat), Number(aircraft.lon)]);
           if (layerState.vectors && active && Number(aircraft.speed_kt || 0) > 0) {
-            L.polyline([[Number(aircraft.lat), Number(aircraft.lon)], projectedPoint(aircraft)], {
-              color: "#ffc857", weight: 1.2, opacity: .58, dashArray: "4 7"
-            }).addTo(vectorLayer);
+            const points = [[Number(aircraft.lat), Number(aircraft.lon)], projectedPoint(aircraft)];
+            const vectorSignature = JSON.stringify(points);
+            const existingVector = headingVectors.get(id);
+            if (!existingVector) {
+              const vector = L.polyline(points, { color: "#ffc857", weight: 1.2, opacity: .58, dashArray: "4 7" }).addTo(vectorLayer);
+              headingVectors.set(id, { vector: vector, signature: vectorSignature });
+            } else if (existingVector.signature !== vectorSignature) {
+              existingVector.vector.setLatLngs(points);
+              existingVector.signature = vectorSignature;
+            }
           }
-        });
-      }
+      });
+
+      aircraftMarkers.forEach(function (entry, id) {
+        if (!visibleIds.has(id)) { aircraftLayer.removeLayer(entry.marker); aircraftMarkers.delete(id); }
+      });
+      headingVectors.forEach(function (entry, id) {
+        const aircraft = visibleAircraft.find(function (item) { return String(item.icao || "") === id; });
+        const active = aircraft && Math.max(0, now - Number(aircraft.last_seen || 0)) < 300;
+        if (!layerState.vectors || !active || Number(aircraft.speed_kt || 0) <= 0) {
+          vectorLayer.removeLayer(entry.vector);
+          headingVectors.delete(id);
+        }
+      });
+      element("map-status").textContent = visibleAircraft.length + " recent · 6h window";
       if (!initialFit && lastBounds.length) { initialFit = true; fitMap(); }
     }
 
@@ -642,6 +691,9 @@
         return Math.max(0, Date.now() / 1000 - Number(aircraft.last_seen || 0)) < 300;
       }).length;
       element("aircraft-summary").textContent = active + " active · " + data.counts.total + " logged";
+      const nextSignature = Math.floor(Date.now() / 60000) + "|" + JSON.stringify(rows);
+      if (nextSignature === tableSignature) return;
+      tableSignature = nextSignature;
       if (!rows.length) {
         body.innerHTML = '<tr><td colspan="7" class="empty">No positioned aircraft logged yet.</td></tr>';
         return;
@@ -752,12 +804,23 @@
       const error = element("error");
       error.hidden = !runtime.last_error;
       error.textContent = runtime.last_error || "";
-      renderCollections(stats);
-      renderActivity(wdg);
-      renderBadges(wdg);
+      const nextWdgSignature = JSON.stringify(wdg);
+      if (nextWdgSignature !== wdgSignature) {
+        wdgSignature = nextWdgSignature;
+        renderCollections(stats);
+        renderActivity(wdg);
+        renderBadges(wdg);
+      }
+    }
+
+    function scheduleRefresh(delay) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = document.hidden ? null : window.setTimeout(refresh, delay == null ? REFRESH_MS : delay);
     }
 
     async function refresh() {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
       try {
         const response = await fetch("/api/dashboard", { cache: "no-store" });
         if (!response.ok) throw new Error("Dashboard API returned HTTP " + response.status);
@@ -771,6 +834,9 @@
         element("system-status").textContent = "Offline";
         element("error").hidden = false;
         element("error").textContent = error.message;
+      } finally {
+        refreshInFlight = false;
+        scheduleRefresh();
       }
     }
 
@@ -783,10 +849,17 @@
       });
     });
     element("fit-map").addEventListener("click", fitMap);
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = null;
+      } else {
+        refresh();
+      }
+    });
     try {
       setupMap();
       refresh();
-      window.setInterval(refresh, 5000);
     } catch (error) {
       setDot("overall-dot", false);
       element("overall-text").textContent = "Map could not start";
