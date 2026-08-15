@@ -14,7 +14,7 @@ RUN git init /src/dump1090 \
 
 FROM python:3.13-slim-trixie
 
-ARG VERSION=0.1.0
+ARG VERSION=0.2.0
 LABEL org.opencontainers.image.title="Canadaverse WDG Aircraft Sidecar" \
       org.opencontainers.image.description="Passive ADS-B logger and WDG Wars uploader" \
       org.opencontainers.image.source="https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar" \
@@ -29,6 +29,7 @@ RUN apt-get update \
 
 COPY --from=dump1090 /src/dump1090/dump1090 /usr/local/bin/dump1090
 COPY --chown=sidecar:sidecar src/sidecar.py /app/sidecar.py
+COPY --chown=sidecar:sidecar src/dashboard.html /app/dashboard.html
 
 USER 10001:10001
 VOLUME ["/data"]

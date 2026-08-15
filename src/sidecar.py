@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import csv
 import hashlib
 import hmac
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
@@ -144,6 +145,17 @@ class Store:
                 )
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS upload_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uploaded_at INTEGER NOT NULL,
+                    sent INTEGER NOT NULL,
+                    imported INTEGER NOT NULL,
+                    already_seen INTEGER NOT NULL
+                )
+                """
+            )
 
     def connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10)
@@ -223,22 +235,33 @@ class Store:
     def mark_uploaded(self, icaos: list[str], result: dict) -> None:
         if not icaos:
             return
+        imported = int(result.get("aircraft_imported", 0))
+        already_seen = int(result.get("aircraft_already_seen", 0))
         summary = json.dumps(
             {
-                "aircraft_imported": result.get("aircraft_imported", 0),
-                "aircraft_already_seen": result.get("aircraft_already_seen", 0),
+                "aircraft_imported": imported,
+                "aircraft_already_seen": already_seen,
             },
             separators=(",", ":"),
         )
         placeholders = ",".join("?" for _ in icaos)
         with self.session() as db:
+            uploaded_at = int(time.time())
             db.execute(
                 f"""
                 UPDATE aircraft
                 SET upload_status = 'uploaded', uploaded_at = ?, server_result = ?
                 WHERE icao IN ({placeholders})
                 """,
-                [int(time.time()), summary, *icaos],
+                [uploaded_at, summary, *icaos],
+            )
+            db.execute(
+                """
+                INSERT INTO upload_events (
+                    uploaded_at, sent, imported, already_seen
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (uploaded_at, len(icaos), imported, already_seen),
             )
 
     def counts(self) -> dict[str, int]:
@@ -251,6 +274,33 @@ class Store:
             counts[row["upload_status"]] = row["n"]
             counts["total"] += row["n"]
         return counts
+
+    def upload_stats(self) -> dict[str, int]:
+        with self.session() as db:
+            row = db.execute(
+                """
+                SELECT COUNT(*) AS batches,
+                       COALESCE(SUM(sent), 0) AS sent,
+                       COALESCE(SUM(imported), 0) AS imported,
+                       COALESCE(SUM(already_seen), 0) AS already_seen
+                FROM upload_events
+                """
+            ).fetchone()
+        return {name: int(row[name]) for name in ("batches", "sent", "imported", "already_seen")}
+
+    def recent(self, limit: int = 500) -> list[dict]:
+        with self.session() as db:
+            rows = db.execute(
+                """
+                SELECT icao, callsign, first_seen, last_seen, lat, lon,
+                       alt_ft, speed_kt, heading, upload_status, uploaded_at
+                FROM aircraft
+                ORDER BY last_seen DESC, icao
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def export_csv(self, output) -> None:
         fields = [
@@ -275,6 +325,7 @@ class RuntimeState:
             "started_at": utc_now(),
             "dump1090_running": False,
             "sbs_connected": False,
+            "web_running": False,
             "messages": 0,
             "auth_ok": None,
             "upload_state": "starting",
@@ -290,6 +341,10 @@ class RuntimeState:
     def increment(self, name: str, amount: int = 1) -> None:
         with self.lock:
             self.data[name] = int(self.data.get(name, 0)) + amount
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            return dict(self.data)
 
     def flush(self, counts: dict[str, int]) -> None:
         with self.lock:
@@ -409,6 +464,73 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
             backoff = min(backoff * 2, 900)
 
 
+def dashboard_payload(store: Store, state: RuntimeState) -> dict:
+    return {
+        "generated_at": utc_now(),
+        "runtime": state.snapshot(),
+        "counts": store.counts(),
+        "uploads": store.upload_stats(),
+        "aircraft": store.recent(),
+    }
+
+
+def web_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
+    port = env_int("WEB_PORT", 8092, 1024, 65535)
+    page = Path(__file__).with_name("dashboard.html").read_bytes()
+
+    class Handler(BaseHTTPRequestHandler):
+        def send_body(self, status: int, content_type: str, body: bytes) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; "
+                "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+                "img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
+                "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+            )
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            path = self.path.split("?", 1)[0]
+            if path == "/":
+                self.send_body(200, "text/html; charset=utf-8", page)
+            elif path == "/api/dashboard":
+                body = json.dumps(
+                    dashboard_payload(store, state), separators=(",", ":")
+                ).encode("utf-8")
+                self.send_body(200, "application/json; charset=utf-8", body)
+            elif path == "/healthz":
+                runtime = state.snapshot()
+                healthy = bool(
+                    runtime.get("dump1090_running") and runtime.get("sbs_connected")
+                )
+                body = json.dumps({"ok": healthy}, separators=(",", ":")).encode("utf-8")
+                self.send_body(200 if healthy else 503, "application/json", body)
+            else:
+                self.send_body(404, "application/json", b'{"error":"not found"}')
+
+        def log_message(self, _format: str, *_args) -> None:
+            return
+
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server.daemon_threads = True
+    server.timeout = 1
+    state.set(web_running=True, web_port=port)
+    print(f"LAN dashboard listening on container port {port}", flush=True)
+    try:
+        while not stop.is_set():
+            server.handle_request()
+    finally:
+        server.server_close()
+        state.set(web_running=False)
+
+
 def matching_sdrs(vendor: str, product: str, serial_number: str) -> list[Path]:
     matches = []
     for device in Path("/sys/bus/usb/devices").glob("*"):
@@ -526,6 +648,7 @@ def run() -> int:
     threads = [
         threading.Thread(target=sbs_loop, args=(store, state, stop), daemon=True),
         threading.Thread(target=upload_loop, args=(store, state, stop), daemon=True),
+        threading.Thread(target=web_loop, args=(store, state, stop), daemon=True),
     ]
     for thread in threads:
         thread.start()
@@ -559,9 +682,18 @@ def healthcheck(data_dir: Path) -> int:
     try:
         status = json.loads((data_dir / "status.json").read_text(encoding="utf-8"))
         fresh = time.time() - int(status["written_at_epoch"]) < 90
-        healthy = fresh and status.get("dump1090_running") and status.get("sbs_connected")
+        healthy = (
+            fresh
+            and status.get("dump1090_running")
+            and status.get("sbs_connected")
+            and status.get("web_running")
+        )
+        if healthy:
+            port = env_int("WEB_PORT", 8092, 1024, 65535)
+            with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as response:
+                healthy = response.status == 200
         return 0 if healthy else 1
-    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+    except (OSError, ValueError, KeyError, json.JSONDecodeError, URLError):
         return 1
 
 

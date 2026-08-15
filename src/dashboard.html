@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Canadaverse WDG Airspace</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root { color-scheme: dark; --bg:#090d14; --panel:#111925; --line:#263244; --text:#edf4ff; --muted:#91a0b5; --cyan:#53d7ff; --green:#38db9b; --amber:#ffd166; --red:#ff6b78; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 15% -10%,#153049 0,transparent 35%),var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+    main { width:min(1500px,100%); margin:auto; padding:22px; }
+    header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:18px; }
+    h1 { margin:0; font-size:clamp(1.6rem,3vw,2.5rem); letter-spacing:-.04em; }
+    h1 span { color:var(--cyan); }
+    .eyebrow { margin:0 0 4px; color:var(--muted); font-size:.76rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
+    .pill { display:inline-flex; gap:8px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:8px 12px; background:#0b111b; white-space:nowrap; }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--amber); box-shadow:0 0 12px currentColor; }
+    .ok .dot { background:var(--green); } .bad .dot { background:var(--red); }
+    .stats { display:grid; grid-template-columns:repeat(7,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+    .card,.panel { border:1px solid var(--line); border-radius:14px; background:color-mix(in srgb,var(--panel) 94%,transparent); box-shadow:0 14px 35px #0005; }
+    .card { padding:13px 15px; min-height:86px; }
+    .card span { display:block; color:var(--muted); font-size:.74rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .card strong { display:block; margin-top:5px; font-size:1.65rem; font-variant-numeric:tabular-nums; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(300px,.65fr); gap:14px; }
+    .panel { overflow:hidden; }
+    .panel-head { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:12px 15px; border-bottom:1px solid var(--line); }
+    .panel-head h2 { margin:0; font-size:1rem; }
+    .subtle { color:var(--muted); font-size:.82rem; }
+    #map { height:520px; background:#0b1119; }
+    .detail { padding:16px; display:grid; gap:12px; }
+    .status-row { display:flex; justify-content:space-between; gap:16px; border-bottom:1px solid #202b3b; padding-bottom:10px; }
+    .status-row span:first-child { color:var(--muted); }
+    .status-row span:last-child { text-align:right; overflow-wrap:anywhere; }
+    .error { color:var(--red); }
+    .table-panel { margin-top:14px; }
+    .table-wrap { max-height:440px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:.86rem; }
+    th { position:sticky; top:0; z-index:1; background:#141e2d; color:var(--muted); text-align:left; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; }
+    th,td { padding:9px 12px; border-bottom:1px solid #202b3b; white-space:nowrap; }
+    tbody tr:hover { background:#172235; }
+    .sent { color:var(--green); } .pending { color:var(--amber); }
+    .leaflet-container { font:13px/1.4 system-ui,sans-serif; }
+    .leaflet-popup-content-wrapper,.leaflet-popup-tip { background:#111925; color:var(--text); }
+    .popup-title { color:var(--cyan); font-size:1rem; margin-bottom:5px; }
+    @media (max-width:1050px) { .stats { grid-template-columns:repeat(4,1fr); } .layout { grid-template-columns:1fr; } #map { height:460px; } }
+    @media (max-width:620px) { main { padding:14px; } header { align-items:flex-start; flex-direction:column; } .stats { grid-template-columns:repeat(2,1fr); } #map { height:390px; } th,td { padding:8px 10px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><p class="eyebrow">Pi 5 · 1090 MHz · ADS-B</p><h1>Canadaverse <span>WDG Airspace</span></h1></div>
+    <div id="overall" class="pill" aria-live="polite"><i class="dot"></i><span>Connecting…</span></div>
+  </header>
+
+  <section class="stats" aria-label="Aircraft statistics">
+    <div class="card"><span>Unique logged</span><strong id="logged">—</strong></div>
+    <div class="card"><span>Confirmed sent</span><strong id="sent">—</strong></div>
+    <div class="card"><span>Pending</span><strong id="pending">—</strong></div>
+    <div class="card"><span>WDG credited</span><strong id="credited">—</strong></div>
+    <div class="card"><span>Already seen</span><strong id="seen">—</strong></div>
+    <div class="card"><span>SBS messages</span><strong id="messages">—</strong></div>
+    <div class="card"><span>Upload batches</span><strong id="batches">—</strong></div>
+  </section>
+
+  <section class="layout">
+    <div class="panel">
+      <div class="panel-head"><h2>Aircraft map</h2><span id="map-count" class="subtle">Waiting for positions</span></div>
+      <div id="map" role="region" aria-label="Map of recently logged aircraft"></div>
+    </div>
+    <aside class="panel">
+      <div class="panel-head"><h2>System status</h2><span id="updated" class="subtle">—</span></div>
+      <div class="detail">
+        <div class="status-row"><span>Decoder</span><span id="decoder">—</span></div>
+        <div class="status-row"><span>WDG API</span><span id="api">—</span></div>
+        <div class="status-row"><span>Upload state</span><span id="upload-state">—</span></div>
+        <div class="status-row"><span>Last aircraft</span><span id="last-aircraft">—</span></div>
+        <div class="status-row"><span>Last upload</span><span id="last-upload">—</span></div>
+        <div class="status-row"><span>Version</span><span id="version">—</span></div>
+        <div class="status-row"><span>Latest error</span><span id="error">None</span></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="panel table-panel">
+    <div class="panel-head"><h2>Recently seen aircraft</h2><span class="subtle">Newest positions first</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Callsign</th><th>ICAO</th><th>Altitude</th><th>Speed</th><th>Heading</th><th>Last seen</th><th>WDG</th></tr></thead>
+        <tbody id="aircraft-table"><tr><td colspan="7" class="subtle">Waiting for aircraft…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+  const el = id => document.getElementById(id);
+  const number = value => Number(value || 0).toLocaleString();
+  const time = epoch => epoch ? new Date(epoch * 1000).toLocaleString() : "—";
+  const map = L.map("map", {zoomControl:true}).setView([43.55, -80.25], 9);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom:19,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  const markers = new Map();
+  let fitted = false;
+
+  function popup(row) {
+    const box = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "popup-title";
+    title.textContent = row.callsign || row.icao;
+    box.append(title);
+    [["ICAO", row.icao], ["Altitude", `${number(row.alt_ft)} ft`], ["Speed", `${number(row.speed_kt)} kt`],
+     ["Heading", `${number(row.heading)}°`], ["WDG", row.upload_status]].forEach(([name, value]) => {
+      const line = document.createElement("div");
+      const label = document.createElement("strong");
+      label.textContent = `${name}: `;
+      line.append(label, document.createTextNode(value));
+      box.append(line);
+    });
+    return box;
+  }
+
+  function updateMap(rows) {
+    const present = new Set();
+    rows.forEach(row => {
+      present.add(row.icao);
+      const latlng = [row.lat, row.lon];
+      const options = {radius:7, weight:2, color:row.upload_status === "uploaded" ? "#38db9b" : "#ffd166", fillColor:"#53d7ff", fillOpacity:.7};
+      let marker = markers.get(row.icao);
+      if (!marker) {
+        marker = L.circleMarker(latlng, options).addTo(map);
+        markers.set(row.icao, marker);
+      } else {
+        marker.setLatLng(latlng).setStyle(options);
+      }
+      marker.bindPopup(popup(row));
+    });
+    for (const [icao, marker] of markers) if (!present.has(icao)) { map.removeLayer(marker); markers.delete(icao); }
+    if (!fitted && rows.length) {
+      const bounds = L.latLngBounds(rows.map(row => [row.lat, row.lon]));
+      rows.length === 1 ? map.setView(bounds.getCenter(), 10) : map.fitBounds(bounds.pad(.18), {maxZoom:11});
+      fitted = true;
+    }
+    el("map-count").textContent = rows.length ? `${number(rows.length)} recent positions` : "Waiting for positions";
+  }
+
+  function updateTable(rows) {
+    const body = el("aircraft-table");
+    body.replaceChildren();
+    if (!rows.length) {
+      const cell = document.createElement("td"); cell.colSpan = 7; cell.className = "subtle"; cell.textContent = "No positioned aircraft logged yet.";
+      const row = document.createElement("tr"); row.append(cell); body.append(row); return;
+    }
+    rows.slice(0, 100).forEach(item => {
+      const row = document.createElement("tr");
+      [item.callsign || "—", item.icao, `${number(item.alt_ft)} ft`, `${number(item.speed_kt)} kt`, `${number(item.heading)}°`, time(item.last_seen), item.upload_status]
+        .forEach((value, index) => { const cell = document.createElement("td"); cell.textContent = value; if (index === 6) cell.className = value; row.append(cell); });
+      body.append(row);
+    });
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch("/api/dashboard", {cache:"no-store"});
+      if (!response.ok) throw new Error(`dashboard HTTP ${response.status}`);
+      const data = await response.json();
+      const r = data.runtime, c = data.counts, u = data.uploads;
+      el("logged").textContent = number(c.total); el("sent").textContent = number(c.uploaded); el("pending").textContent = number(c.pending);
+      el("credited").textContent = number(u.imported); el("seen").textContent = number(u.already_seen); el("messages").textContent = number(r.messages); el("batches").textContent = number(u.batches);
+      el("decoder").textContent = r.dump1090_running && r.sbs_connected ? "Receiving" : "Not ready";
+      el("api").textContent = r.auth_ok === true ? "Authenticated" : r.auth_ok === false ? "Rejected" : "Waiting";
+      el("upload-state").textContent = r.upload_state; el("last-aircraft").textContent = r.last_aircraft ? `${r.last_aircraft.callsign || r.last_aircraft.icao} · ${r.last_aircraft.at}` : "—";
+      el("last-upload").textContent = r.last_upload ? `${r.last_upload.sent} sent · ${r.last_upload.imported} new · ${r.last_upload.at}` : "—";
+      el("version").textContent = r.version; el("error").textContent = r.last_error || "None"; el("error").className = r.last_error ? "error" : "";
+      el("updated").textContent = new Date(data.generated_at).toLocaleTimeString();
+      const ready = r.dump1090_running && r.sbs_connected && r.auth_ok === true;
+      el("overall").className = `pill ${ready ? "ok" : r.auth_ok === false ? "bad" : ""}`;
+      el("overall").querySelector("span").textContent = ready ? "Receiver and WDG online" : "Starting or waiting";
+      updateMap(data.aircraft); updateTable(data.aircraft);
+    } catch (error) {
+      el("overall").className = "pill bad";
+      el("overall").querySelector("span").textContent = "Dashboard disconnected";
+      el("error").textContent = error.message;
+      el("error").className = "error";
+    }
+  }
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+</body>
+</html>

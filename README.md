@@ -13,6 +13,8 @@ and this container handles 1090 MHz aircraft.
 - Logs each unique positioned ICAO aircraft in persistent SQLite storage.
 - Uploads batches using WDG Wars' `aircraft` schema and HMAC-SHA256 envelope.
 - Records confirmed `aircraft_imported` and `aircraft_already_seen` results.
+- Serves a read-only LAN dashboard with a live aircraft map and persistent WDG
+  upload statistics.
 - Selects one exact RTL-SDR by USB vendor, product and serial; startup fails if
   the identity is absent or ambiguous.
 - Receives only. It does not transmit radio, scan Wi-Fi, read Biscuit data, or
@@ -38,11 +40,15 @@ The setup script:
 2. grants only that receiver to the host `plugdev` group;
 3. prompts invisibly for the API key and stores it in a git-ignored, mode-0600
    file outside the image;
-4. pulls the ARM64/AMD64 image, starts Compose, and waits for a healthy decoder.
+4. binds the dashboard to the Pi's detected LAN address on port `8092`;
+5. pulls the ARM64/AMD64 image, starts Compose, and waits for a healthy decoder.
 
-No web port is needed, so this does not conflict with services already using
-ports 8080 or 3001. The container has a read-only root filesystem, drops all
-Linux capabilities, and runs as an unprivileged user.
+Open `http://PI_LAN_IP:8092` to see positioned aircraft, decoder/API health,
+unique logged and confirmed-sent totals, pending uploads, WDG credited versus
+already-seen counts, and upload batches. The port binds only to the detected
+LAN address, not every host interface, and does not conflict with the existing
+Pi services on ports 8080 or 8090. The container has a read-only root
+filesystem, drops all Linux capabilities, and runs as an unprivileged user.
 
 ## Check it
 

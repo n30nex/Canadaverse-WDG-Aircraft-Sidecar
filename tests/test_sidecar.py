@@ -3,9 +3,15 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import os
 from pathlib import Path
+import socket
 import tempfile
+import threading
+import time
 import unittest
+from unittest.mock import patch
+from urllib.request import urlopen
 
 
 MODULE_PATH = Path(__file__).parents[1] / "src" / "sidecar.py"
@@ -70,9 +76,55 @@ class SidecarTests(unittest.TestCase):
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0]["first_seen"], "100")
             self.assertEqual(pending[0]["callsign"], "ACA123")
-            store.mark_uploaded(["C0FFEE"], {"aircraft_imported": 1})
+            store.mark_uploaded(
+                ["C0FFEE"],
+                {"aircraft_imported": 1, "aircraft_already_seen": 0},
+            )
             self.assertEqual(store.pending(10), [])
             self.assertEqual(store.counts(), {"total": 1, "pending": 0, "uploaded": 1})
+            self.assertEqual(
+                store.upload_stats(),
+                {"batches": 1, "sent": 1, "imported": 1, "already_seen": 0},
+            )
+            recent = store.recent()
+            self.assertEqual((recent[0]["icao"], recent[0]["callsign"]), ("C0FFEE", "ACA123"))
+            state = sidecar.RuntimeState(Path(directory) / "status.json")
+            state.set(auth_ok=True, messages=42)
+            dashboard = sidecar.dashboard_payload(store, state)
+            self.assertEqual(dashboard["counts"]["uploaded"], 1)
+            self.assertEqual(dashboard["uploads"]["imported"], 1)
+            self.assertEqual(dashboard["runtime"]["messages"], 42)
+
+    def test_dashboard_serves_health_page_and_json(self):
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+            probe.close()
+            store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
+            state = sidecar.RuntimeState(Path(directory) / "status.json")
+            state.set(dump1090_running=True, sbs_connected=True, auth_ok=True)
+            stop = threading.Event()
+            with patch.dict(os.environ, {"WEB_PORT": str(port)}):
+                thread = threading.Thread(
+                    target=sidecar.web_loop, args=(store, state, stop), daemon=True
+                )
+                thread.start()
+                for _ in range(20):
+                    try:
+                        with urlopen(f"http://127.0.0.1:{port}/healthz") as response:
+                            self.assertEqual(json.load(response), {"ok": True})
+                        break
+                    except OSError:
+                        time.sleep(0.05)
+                else:
+                    self.fail("dashboard did not start")
+                with urlopen(f"http://127.0.0.1:{port}/api/dashboard") as response:
+                    self.assertEqual(json.load(response)["counts"]["total"], 0)
+                with urlopen(f"http://127.0.0.1:{port}/") as response:
+                    self.assertIn(b"Canadaverse WDG Airspace", response.read())
+                stop.set()
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":

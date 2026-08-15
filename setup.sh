@@ -5,7 +5,7 @@ VID="${SDR_VENDOR_ID:-0bda}"
 PID="${SDR_PRODUCT_ID:-2838}"
 EXPECTED_SERIAL="${SDR_SERIAL:-00000001}"
 
-for command in docker lsusb udevadm; do
+for command in docker ip lsusb udevadm; do
   command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
 docker compose version >/dev/null
@@ -28,6 +28,8 @@ fi
 
 plugdev_gid="$(getent group plugdev | cut -d: -f3)"
 [[ -n "$plugdev_gid" ]] || { echo "The host has no plugdev group." >&2; exit 1; }
+lan_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -1)"
+[[ "$lan_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Could not detect the LAN IPv4 address." >&2; exit 1; }
 
 umask 077
 mkdir -p .secrets
@@ -54,9 +56,12 @@ if [[ ! -f .env ]]; then
     -e "s/^SDR_PRODUCT_ID=.*/SDR_PRODUCT_ID=${PID}/" \
     -e "s/^SDR_SERIAL=.*/SDR_SERIAL=${serial}/" \
     -e "s/^RTLSDR_GID=.*/RTLSDR_GID=${plugdev_gid}/" \
+    -e "s/^WEB_BIND_IP=.*/WEB_BIND_IP=${lan_ip}/" \
     .env.example > .env
   chmod 0600 .env
 fi
+grep -q '^WEB_BIND_IP=' .env || printf 'WEB_BIND_IP=%s\n' "$lan_ip" >> .env
+grep -q '^WEB_PORT=' .env || printf 'WEB_PORT=8092\n' >> .env
 
 echo "Starting Canadaverse WDG Aircraft Sidecar with ${model:-RTL-SDR} (${VID}:${PID}, serial ${serial})"
 sudo docker compose pull
@@ -76,4 +81,7 @@ if [[ "$health" != "healthy" ]]; then
   sudo docker compose logs --tail=40 aircraft-sidecar >&2
   exit 1
 fi
+web_bind_ip="$(sed -n 's/^WEB_BIND_IP=//p' .env | tail -1)"
+web_port="$(sed -n 's/^WEB_PORT=//p' .env | tail -1)"
 echo "Ready. Aircraft are being logged and submitted to WDG Wars."
+echo "Dashboard: http://${web_bind_ip}:${web_port}"
