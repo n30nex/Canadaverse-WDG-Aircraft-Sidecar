@@ -38,8 +38,8 @@ The setup script:
 
 1. verifies exactly one matching SDR and its serial number;
 2. grants only that receiver to the host `plugdev` group;
-3. prompts invisibly for the API key and stores it in a git-ignored, mode-0600
-   file outside the image;
+3. prompts invisibly for the API key and stores it in a git-ignored, group-read-only
+   file outside the image, accessible only to its dedicated host group and the container;
 4. binds the dashboard to the Pi's detected LAN address on port `8092`;
 5. pulls the ARM64/AMD64 image, starts Compose, and waits for a healthy decoder.
 

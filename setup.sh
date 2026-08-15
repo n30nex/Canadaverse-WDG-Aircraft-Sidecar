@@ -28,6 +28,12 @@ fi
 
 plugdev_gid="$(getent group plugdev | cut -d: -f3)"
 [[ -n "$plugdev_gid" ]] || { echo "The host has no plugdev group." >&2; exit 1; }
+secret_group="wdgwars-aircraft"
+if ! getent group "$secret_group" >/dev/null; then
+  sudo groupadd --system "$secret_group"
+fi
+secret_gid="$(getent group "$secret_group" | cut -d: -f3)"
+[[ -n "$secret_gid" ]] || { echo "Could not create the WDG Wars secret group." >&2; exit 1; }
 lan_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -1)"
 [[ "$lan_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Could not detect the LAN IPv4 address." >&2; exit 1; }
 
@@ -43,6 +49,8 @@ else
   [[ "$api_key" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo "Saved API key is invalid; nothing changed." >&2; exit 1; }
 fi
 unset api_key
+sudo chgrp "$secret_group" .secrets/wdgwars_api_key
+sudo chmod 0640 .secrets/wdgwars_api_key
 
 rule="SUBSYSTEM==\"usb\", ATTR{idVendor}==\"${VID}\", ATTR{idProduct}==\"${PID}\", ATTR{serial}==\"${serial}\", MODE=\"0660\", GROUP=\"plugdev\""
 printf '%s\n' "$rule" | sudo tee /etc/udev/rules.d/99-wdgwars-aircraft-sidecar.rules >/dev/null
@@ -56,10 +64,17 @@ if [[ ! -f .env ]]; then
     -e "s/^SDR_PRODUCT_ID=.*/SDR_PRODUCT_ID=${PID}/" \
     -e "s/^SDR_SERIAL=.*/SDR_SERIAL=${serial}/" \
     -e "s/^RTLSDR_GID=.*/RTLSDR_GID=${plugdev_gid}/" \
+    -e "s/^WDGWARS_GID=.*/WDGWARS_GID=${secret_gid}/" \
     -e "s/^WEB_BIND_IP=.*/WEB_BIND_IP=${lan_ip}/" \
     .env.example > .env
   chmod 0600 .env
 fi
+if grep -q '^WDGWARS_GID=' .env; then
+  sed -i "s/^WDGWARS_GID=.*/WDGWARS_GID=${secret_gid}/" .env
+else
+  printf 'WDGWARS_GID=%s\n' "$secret_gid" >> .env
+fi
+chmod 0600 .env
 grep -q '^WEB_BIND_IP=' .env || printf 'WEB_BIND_IP=%s\n' "$lan_ip" >> .env
 grep -q '^WEB_PORT=' .env || printf 'WEB_PORT=8092\n' >> .env
 

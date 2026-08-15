@@ -12,6 +12,7 @@ services:
       - no-new-privileges:true
     group_add:
       - "${RTLSDR_GID:-46}"
+      - "${WDGWARS_GID:-46}"
     device_cgroup_rules:
       - "c 189:* rw"
     environment:
