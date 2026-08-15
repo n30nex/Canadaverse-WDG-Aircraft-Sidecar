@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
