@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
@@ -402,6 +402,14 @@ def nonnegative_int(value) -> int:
         return 0
 
 
+def positive_int_or_none(value) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 def public_timestamp(value) -> str:
     text = str(value or "").strip().replace("Z", "+00:00")
     if not text:
@@ -468,8 +476,13 @@ def public_wdg_profile(profile: dict) -> dict:
     activity_cells.sort(key=lambda item: (item["last_seen"], item["id"]), reverse=True)
 
     badges = profile.get("badges") if isinstance(profile.get("badges"), list) else []
+    credits = profile.get("credits") if isinstance(profile.get("credits"), dict) else {}
+    ranks = profile.get("your_rank") if isinstance(profile.get("your_rank"), dict) else {}
+    allowance = profile.get("new_ap_limit") if isinstance(profile.get("new_ap_limit"), dict) else {}
+    reinforce = profile.get("reinforce") if isinstance(profile.get("reinforce"), dict) else {}
     return {
         "source": "WDG Wars /api/me",
+        "scope": "linked_profile",
         "refreshed_at": utc_now(),
         "team": {
             "name": str(profile.get("gang", "")).strip()[:80],
@@ -484,6 +497,22 @@ def public_wdg_profile(profile: dict) -> dict:
             )
         },
         "badges": [str(badge)[:64] for badge in badges[:24] if isinstance(badge, str)],
+        "credits": {
+            name: nonnegative_int(credits.get(name))
+            for name in ("balance", "lifetime_earned", "bounties_completed")
+        },
+        "rank": {
+            name: positive_int_or_none(ranks.get(name))
+            for name in ("today", "week", "all_time")
+        } | {"top_n": nonnegative_int(ranks.get("top_n"))},
+        "new_ap_limit": {
+            name: nonnegative_int(allowance.get(name))
+            for name in ("used", "remaining", "cap")
+        } | {"window": str(allowance.get("window", "")).strip()[:32]},
+        "reinforce": {
+            "level_2": nonnegative_int(reinforce.get("2")),
+            "level_3": nonnegative_int(reinforce.get("3")),
+        },
         "adsb": {
             "aircraft": nonnegative_int(adsb_device.get("aircraft")),
             "uploads": nonnegative_int(adsb_device.get("uploads")),

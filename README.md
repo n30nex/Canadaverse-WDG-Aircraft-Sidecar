@@ -15,7 +15,8 @@ and this container handles 1090 MHz aircraft.
 - Records confirmed `aircraft_imported` and `aircraft_already_seen` results.
 - Serves a public read-only Royal City Recon dashboard with a dark interactive
   map, coarse recent-activity grid, live aircraft, verified collection totals,
-  badges, receiver health, and persistent WDG upload statistics.
+  badges, profile progress, live receiver-rate meters, and persistent WDG
+  upload statistics.
 - Selects one exact RTL-SDR by USB vendor, product and serial; startup fails if
   the identity is absent or ambiguous.
 - Receives only. It does not transmit radio, scan Wi-Fi, read Biscuit data, or
@@ -51,6 +52,9 @@ user ID, other device names, credentials, raw capture coordinates, SSIDs, and
 BSSIDs. Recent capture locations are aggregated into roughly 1 km activity
 cells and are explicitly not presented as territory ownership. The WDG totals
 belong to the linked member profile; the API does not claim they are gang-wide.
+The same scoped snapshot also shows reinforcement tiers, credits and bounties,
+member rank when reported, and the rolling new-AP allowance without exposing
+the account identity or precise capture locations.
 
 The port binds only to the detected LAN address, not every host interface, and
 does not conflict with the existing Pi services on ports 8080 or 8090. The
