@@ -13,8 +13,9 @@ and this container handles 1090 MHz aircraft.
 - Logs each unique positioned ICAO aircraft in persistent SQLite storage.
 - Uploads batches using WDG Wars' `aircraft` schema and HMAC-SHA256 envelope.
 - Records confirmed `aircraft_imported` and `aircraft_already_seen` results.
-- Serves a read-only LAN dashboard with a live aircraft map and persistent WDG
-  upload statistics.
+- Serves a public read-only Royal City Recon dashboard with a dark interactive
+  map, coarse recent-activity grid, live aircraft, verified collection totals,
+  badges, receiver health, and persistent WDG upload statistics.
 - Selects one exact RTL-SDR by USB vendor, product and serial; startup fails if
   the identity is absent or ambiguous.
 - Receives only. It does not transmit radio, scan Wi-Fi, read Biscuit data, or
@@ -43,12 +44,18 @@ The setup script:
 4. binds the dashboard to the Pi's detected LAN address on port `8092`;
 5. pulls the ARM64/AMD64 image, starts Compose, and waits for a healthy decoder.
 
-Open `http://PI_LAN_IP:8092` to see positioned aircraft, decoder/API health,
-unique logged and confirmed-sent totals, pending uploads, WDG credited versus
-already-seen counts, and upload batches. The port binds only to the detected
-LAN address, not every host interface, and does not conflict with the existing
-Pi services on ports 8080 or 8090. The container has a read-only root
-filesystem, drops all Linux capabilities, and runs as an unprivileged user.
+Open `http://PI_LAN_IP:8092` to see the Royal City Recon operations view. It
+combines local positioned aircraft and upload acknowledgements with a sanitized,
+five-minute WDG profile snapshot. The public API excludes the account name,
+user ID, other device names, credentials, raw capture coordinates, SSIDs, and
+BSSIDs. Recent capture locations are aggregated into roughly 1 km activity
+cells and are explicitly not presented as territory ownership. The WDG totals
+belong to the linked member profile; the API does not claim they are gang-wide.
+
+The port binds only to the detected LAN address, not every host interface, and
+does not conflict with the existing Pi services on ports 8080 or 8090. The
+container has a read-only root filesystem, drops all Linux capabilities, and
+runs as an unprivileged user.
 
 ## Check it
 

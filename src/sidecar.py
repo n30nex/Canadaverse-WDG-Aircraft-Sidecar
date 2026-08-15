@@ -28,7 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
@@ -331,6 +331,7 @@ class RuntimeState:
             "upload_state": "starting",
             "last_aircraft": None,
             "last_upload": None,
+            "wdg": None,
             "last_error": None,
         }
 
@@ -394,6 +395,108 @@ def request_json(url: str, api_key: str, body: bytes | None = None, timeout: int
         return json.loads(response.read().decode("utf-8"))
 
 
+def nonnegative_int(value) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def public_timestamp(value) -> str:
+    text = str(value or "").strip().replace("Z", "+00:00")
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+    except ValueError:
+        return ""
+
+
+def public_wdg_profile(profile: dict) -> dict:
+    """Return a public, aggregation-first subset of the authenticated profile."""
+    devices = profile.get("devices") if isinstance(profile.get("devices"), list) else []
+    adsb_device = next(
+        (
+            item for item in devices
+            if isinstance(item, dict)
+            and str(item.get("device_name", "")).strip().lower() == "adsb"
+        ),
+        {},
+    )
+
+    cells: dict[tuple[float, float], dict] = {}
+    captures = profile.get("recent_captures")
+    if isinstance(captures, list):
+        for capture in captures[:100]:
+            if not isinstance(capture, dict):
+                continue
+            try:
+                lat = float(capture.get("lat"))
+                lon = float(capture.get("lng"))
+            except (TypeError, ValueError):
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+            center = (round(lat, 2), round(lon, 2))
+            cell = cells.setdefault(
+                center,
+                {
+                    "id": f"{center[0]:.2f},{center[1]:.2f}",
+                    "lat": center[0],
+                    "lon": center[1],
+                    "events": 0,
+                    "aps": 0,
+                    "last_seen": "",
+                    "defenders": set(),
+                },
+            )
+            cell["events"] += 1
+            cell["aps"] += nonnegative_int(capture.get("ap_count"))
+            when = public_timestamp(capture.get("when"))
+            cell["last_seen"] = max(cell["last_seen"], when)
+            defender = str(capture.get("defender_gang", "")).strip()[:80]
+            if defender:
+                cell["defenders"].add(defender)
+
+    activity_cells = []
+    for cell in cells.values():
+        cell["defenders"] = sorted(cell["defenders"])[:3]
+        activity_cells.append(cell)
+    activity_cells.sort(key=lambda item: (item["last_seen"], item["id"]), reverse=True)
+
+    badges = profile.get("badges") if isinstance(profile.get("badges"), list) else []
+    return {
+        "source": "WDG Wars /api/me",
+        "refreshed_at": utc_now(),
+        "team": {
+            "name": str(profile.get("gang", "")).strip()[:80],
+            "id": nonnegative_int(profile.get("gang_id")),
+            "role": str(profile.get("gang_role", "")).strip()[:40],
+        },
+        "stats": {
+            name: nonnegative_int(profile.get(name))
+            for name in (
+                "total", "wifi", "ble", "mesh", "aircraft",
+                "recent_7d", "recent_today", "reinforce_total",
+            )
+        },
+        "badges": [str(badge)[:64] for badge in badges[:24] if isinstance(badge, str)],
+        "adsb": {
+            "aircraft": nonnegative_int(adsb_device.get("aircraft")),
+            "uploads": nonnegative_int(adsb_device.get("uploads")),
+            "last_upload": public_timestamp(adsb_device.get("last_upload")),
+        },
+        "activity_grid": {
+            "precision_degrees": 0.01,
+            "note": "Recent capture activity aggregated to coarse cells; not territory ownership.",
+            "cells": activity_cells,
+        },
+    }
+
+
 def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
     if os.getenv("UPLOAD_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
         state.set(upload_state="disabled", auth_ok=None)
@@ -403,18 +506,24 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
     me_url = os.getenv("WDGWARS_ME_URL", DEFAULT_ME_URL)
     interval = env_int("UPLOAD_INTERVAL_SECONDS", 60, 15, 3600)
     batch_size = env_int("UPLOAD_BATCH_SIZE", 100, 1, 500)
+    profile_interval = env_int("WDGWARS_PROFILE_INTERVAL_SECONDS", 300, 60, 3600)
     backoff = interval
-    authenticated_at = 0.0
+    profile_refreshed_at = 0.0
 
     while not stop.is_set():
         try:
             api_key = load_api_key()
-            if time.time() - authenticated_at > 3600:
+            if time.time() - profile_refreshed_at > profile_interval:
                 profile = request_json(me_url, api_key, timeout=15)
                 if not profile.get("ok"):
                     raise RuntimeError(f"WDG Wars authentication failed: {profile.get('error', 'unknown error')}")
-                authenticated_at = time.time()
-                state.set(auth_ok=True, upload_state="ready", last_error=None)
+                profile_refreshed_at = time.time()
+                state.set(
+                    auth_ok=True,
+                    upload_state="ready",
+                    wdg=public_wdg_profile(profile),
+                    last_error=None,
+                )
 
             aircraft = store.pending(batch_size)
             if not aircraft:

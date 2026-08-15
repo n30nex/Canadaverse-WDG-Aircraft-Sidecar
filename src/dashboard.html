@@ -3,195 +3,796 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Canadaverse WDG Airspace</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <meta name="color-scheme" content="dark">
+  <title>Royal City Recon · Canadaverse WDG Airspace</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
-    :root { color-scheme: dark; --bg:#090d14; --panel:#111925; --line:#263244; --text:#edf4ff; --muted:#91a0b5; --cyan:#53d7ff; --green:#38db9b; --amber:#ffd166; --red:#ff6b78; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:radial-gradient(circle at 15% -10%,#153049 0,transparent 35%),var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
-    main { width:min(1500px,100%); margin:auto; padding:22px; }
-    header { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:18px; }
-    h1 { margin:0; font-size:clamp(1.6rem,3vw,2.5rem); letter-spacing:-.04em; }
-    h1 span { color:var(--cyan); }
-    .eyebrow { margin:0 0 4px; color:var(--muted); font-size:.76rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
-    .pill { display:inline-flex; gap:8px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:8px 12px; background:#0b111b; white-space:nowrap; }
-    .dot { width:9px; height:9px; border-radius:50%; background:var(--amber); box-shadow:0 0 12px currentColor; }
-    .ok .dot { background:var(--green); } .bad .dot { background:var(--red); }
-    .stats { display:grid; grid-template-columns:repeat(7,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
-    .card,.panel { border:1px solid var(--line); border-radius:14px; background:color-mix(in srgb,var(--panel) 94%,transparent); box-shadow:0 14px 35px #0005; }
-    .card { padding:13px 15px; min-height:86px; }
-    .card span { display:block; color:var(--muted); font-size:.74rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-    .card strong { display:block; margin-top:5px; font-size:1.65rem; font-variant-numeric:tabular-nums; }
-    .layout { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(300px,.65fr); gap:14px; }
-    .panel { overflow:hidden; }
-    .panel-head { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:12px 15px; border-bottom:1px solid var(--line); }
-    .panel-head h2 { margin:0; font-size:1rem; }
-    .subtle { color:var(--muted); font-size:.82rem; }
-    #map { height:520px; background:#0b1119; }
-    .detail { padding:16px; display:grid; gap:12px; }
-    .status-row { display:flex; justify-content:space-between; gap:16px; border-bottom:1px solid #202b3b; padding-bottom:10px; }
-    .status-row span:first-child { color:var(--muted); }
-    .status-row span:last-child { text-align:right; overflow-wrap:anywhere; }
-    .error { color:var(--red); }
-    .table-panel { margin-top:14px; }
-    .table-wrap { max-height:440px; overflow:auto; }
-    table { width:100%; border-collapse:collapse; font-size:.86rem; }
-    th { position:sticky; top:0; z-index:1; background:#141e2d; color:var(--muted); text-align:left; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; }
-    th,td { padding:9px 12px; border-bottom:1px solid #202b3b; white-space:nowrap; }
-    tbody tr:hover { background:#172235; }
-    .sent { color:var(--green); } .pending { color:var(--amber); }
-    .leaflet-container { font:13px/1.4 system-ui,sans-serif; }
-    .leaflet-popup-content-wrapper,.leaflet-popup-tip { background:#111925; color:var(--text); }
-    .popup-title { color:var(--cyan); font-size:1rem; margin-bottom:5px; }
-    @media (max-width:1050px) { .stats { grid-template-columns:repeat(4,1fr); } .layout { grid-template-columns:1fr; } #map { height:460px; } }
-    @media (max-width:620px) { main { padding:14px; } header { align-items:flex-start; flex-direction:column; } .stats { grid-template-columns:repeat(2,1fr); } #map { height:390px; } th,td { padding:8px 10px; } }
+    :root {
+      --bg: #03070a;
+      --panel: #081017;
+      --panel-2: #0b151d;
+      --panel-3: #101c25;
+      --line: #1b2b35;
+      --line-bright: #2f4a57;
+      --text: #edf7f2;
+      --muted: #8ca19b;
+      --green: #8dff63;
+      --green-2: #4ee0a0;
+      --cyan: #55d9ff;
+      --purple: #a86cff;
+      --gold: #ffc857;
+      --red: #ff6174;
+      --shadow: 0 16px 50px rgba(0, 0, 0, .28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 42% -15%, rgba(78, 224, 160, .09), transparent 33rem),
+        linear-gradient(180deg, #050b0f, var(--bg));
+      overflow-x: hidden;
+    }
+    button, a { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    .muted { color: var(--muted); }
+    .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .eyebrow {
+      color: var(--green);
+      font-size: .68rem;
+      font-weight: 800;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+
+    .topbar {
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: minmax(260px, auto) 1fr auto;
+      align-items: center;
+      gap: 28px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(3, 8, 11, .9);
+      backdrop-filter: blur(16px);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .crest {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(141, 255, 99, .32);
+      border-radius: 13px;
+      background: linear-gradient(145deg, rgba(141, 255, 99, .14), rgba(85, 217, 255, .04));
+      box-shadow: inset 0 0 24px rgba(141, 255, 99, .05);
+    }
+    .crest svg { width: 31px; height: 31px; }
+    .brand-title { display: block; font-size: 1.06rem; font-weight: 850; letter-spacing: .035em; white-space: nowrap; }
+    .brand-subtitle { display: block; margin-top: 2px; color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
+    .nav { display: flex; align-items: stretch; justify-content: center; gap: 6px; }
+    .nav a {
+      min-width: 88px;
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      color: var(--muted);
+      font-size: .73rem;
+      font-weight: 750;
+      letter-spacing: .06em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .nav a:hover, .nav a.active {
+      color: var(--text);
+      border-color: rgba(141, 255, 99, .26);
+      background: rgba(141, 255, 99, .08);
+    }
+    .live-cluster { display: flex; align-items: center; gap: 12px; }
+    .live-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 176px;
+      padding: 9px 12px;
+      border: 1px solid var(--line-bright);
+      border-radius: 10px;
+      background: var(--panel);
+      font-size: .76rem;
+      font-weight: 700;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 4px rgba(140, 161, 155, .08); }
+    .dot.ok { background: var(--green); box-shadow: 0 0 14px rgba(141, 255, 99, .72); }
+    .dot.bad { background: var(--red); box-shadow: 0 0 14px rgba(255, 97, 116, .65); }
+    .refresh-meta { color: var(--muted); font-size: .68rem; text-align: right; line-height: 1.35; }
+
+    .metric-strip {
+      min-height: 78px;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(112px, 1fr));
+      gap: 1px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--line);
+    }
+    .metric {
+      min-width: 0;
+      padding: 13px 15px;
+      background: var(--panel);
+      position: relative;
+      overflow: hidden;
+    }
+    .metric::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      opacity: .78;
+      background: var(--metric-color, var(--green));
+    }
+    .metric-label { color: var(--muted); font-size: .67rem; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+    .metric-value { margin-top: 3px; font-size: 1.55rem; line-height: 1; font-weight: 820; font-variant-numeric: tabular-nums; }
+    .metric-note { margin-top: 5px; color: var(--muted); font-size: .65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .workspace {
+      height: calc(100vh - 155px);
+      min-height: 700px;
+      display: grid;
+      grid-template-columns: 260px minmax(520px, 1fr) 330px;
+      gap: 8px;
+      padding: 8px;
+    }
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(11, 21, 29, .98), rgba(7, 14, 19, .98));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-header {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(4, 10, 14, .55);
+    }
+    .panel-title { font-size: .73rem; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
+    .panel-tag { color: var(--green); font-size: .65rem; font-weight: 750; }
+    .left-rail, .right-rail { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-bright) transparent; }
+    .left-rail .panel, .right-rail .panel { flex: 0 0 auto; box-shadow: none; }
+    .section-body { padding: 12px; }
+
+    .team-card {
+      padding: 14px;
+      background:
+        linear-gradient(145deg, rgba(141, 255, 99, .09), transparent 55%),
+        var(--panel-2);
+    }
+    .team-level { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+    .team-name { margin-top: 5px; font-size: 1.05rem; font-weight: 840; }
+    .team-id { color: var(--muted); font-size: .68rem; }
+    .team-score { margin-top: 14px; font-size: 2rem; line-height: 1; font-weight: 850; font-variant-numeric: tabular-nums; }
+    .team-score-label { margin-top: 5px; color: var(--muted); font-size: .68rem; }
+    .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 13px; }
+    .mini-stat { padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(3, 9, 12, .5); }
+    .mini-stat strong { display: block; font-size: .98rem; font-variant-numeric: tabular-nums; }
+    .mini-stat span { color: var(--muted); font-size: .62rem; }
+
+    .layer-list { display: grid; gap: 7px; }
+    .layer-toggle {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      align-items: center;
+      gap: 9px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(3, 9, 12, .42);
+      cursor: pointer;
+      text-align: left;
+    }
+    .layer-toggle:hover { border-color: var(--line-bright); }
+    .layer-icon {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      color: var(--layer-color, var(--green));
+      background: rgba(141, 255, 99, .08);
+      font-size: .95rem;
+    }
+    .layer-name { display: block; font-size: .75rem; font-weight: 720; }
+    .layer-note { display: block; margin-top: 2px; color: var(--muted); font-size: .61rem; }
+    .switch { width: 34px; height: 19px; padding: 2px; border-radius: 99px; background: #23313a; transition: .18s ease; }
+    .switch::after { content: ""; display: block; width: 15px; height: 15px; border-radius: 50%; background: #87969d; transition: .18s ease; }
+    .layer-toggle[aria-pressed="true"] .switch { background: #3e8153; }
+    .layer-toggle[aria-pressed="true"] .switch::after { transform: translateX(15px); background: white; }
+
+    .collection-row { margin-bottom: 12px; }
+    .collection-row:last-child { margin-bottom: 0; }
+    .collection-line { display: flex; justify-content: space-between; gap: 12px; font-size: .7rem; }
+    .collection-line strong { font-variant-numeric: tabular-nums; }
+    .bar { height: 4px; margin-top: 6px; border-radius: 9px; background: #15232c; overflow: hidden; }
+    .bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--bar-color, var(--green)); transition: width .35s ease; }
+    .privacy-note { padding: 10px; border: 1px solid rgba(85, 217, 255, .18); border-radius: 8px; color: #b8cbc8; background: rgba(85, 217, 255, .05); font-size: .65rem; line-height: 1.45; }
+
+    .center-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(430px, 1fr) 240px; gap: 8px; }
+    .map-panel { position: relative; min-height: 0; }
+    #map { width: 100%; height: 100%; min-height: 430px; background: #071016; }
+    #map .leaflet-tile-pane { filter: brightness(.54) saturate(.68) hue-rotate(134deg) contrast(1.18); }
+    #map .leaflet-control-zoom a { color: var(--text); background: #0a151c; border-color: var(--line-bright); }
+    #map .leaflet-control-attribution { color: var(--muted); background: rgba(4, 9, 12, .76); }
+    #map .leaflet-control-attribution a { color: #a9c7c0; }
+    #map .leaflet-popup-content-wrapper, #map .leaflet-popup-tip { color: var(--text); background: #0a141b; box-shadow: 0 12px 30px rgba(0, 0, 0, .45); }
+    #map .leaflet-popup-content-wrapper { border: 1px solid var(--line-bright); border-radius: 10px; }
+    .popup-title { font-weight: 800; margin-bottom: 5px; }
+    .popup-row { margin-top: 3px; color: #b7c9c3; font-size: .74rem; }
+    .plane-marker {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(85, 217, 255, .48);
+      border-radius: 50%;
+      color: white;
+      background: rgba(5, 26, 37, .88);
+      box-shadow: 0 0 0 4px rgba(85, 217, 255, .08), 0 0 22px rgba(85, 217, 255, .28);
+      font-size: 17px;
+    }
+    .plane-marker.stale { opacity: .54; filter: grayscale(.6); }
+    .plane-glyph { display: block; line-height: 1; transform-origin: 50% 50%; }
+    .map-toolbar { position: absolute; z-index: 500; top: 10px; right: 10px; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 70px); }
+    .map-readout, .map-action {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      padding: 7px 10px;
+      border: 1px solid var(--line-bright);
+      border-radius: 8px;
+      background: rgba(4, 10, 14, .9);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+      font-size: .68rem;
+    }
+    .map-readout { color: #b8cbc8; }
+    .map-action { cursor: pointer; font-weight: 760; }
+    .map-action:hover { border-color: var(--green); color: var(--green); }
+    .map-legend { position: absolute; z-index: 500; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(4, 10, 14, .88); color: #b7c7c3; font-size: .63rem; pointer-events: none; }
+    .legend-key { display: flex; align-items: center; gap: 5px; }
+    .legend-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--swatch); }
+
+    .aircraft-panel { min-height: 0; display: flex; flex-direction: column; }
+    .table-scroll { min-height: 0; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .7rem; }
+    th { position: sticky; top: 0; z-index: 2; padding: 9px 11px; color: var(--muted); background: #091219; border-bottom: 1px solid var(--line); font-size: .61rem; letter-spacing: .07em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+    td { padding: 9px 11px; border-bottom: 1px solid rgba(27, 43, 53, .6); white-space: nowrap; }
+    tbody tr:hover { background: rgba(141, 255, 99, .035); }
+    .flight { color: var(--text); font-weight: 760; }
+    .status-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 99px; color: var(--green); background: rgba(141, 255, 99, .08); font-size: .6rem; font-weight: 760; text-transform: uppercase; }
+    .status-chip.pending { color: var(--gold); background: rgba(255, 200, 87, .09); }
+    .empty { padding: 34px 14px; color: var(--muted); text-align: center; }
+
+    .health-list { display: grid; gap: 8px; }
+    .health-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid rgba(27, 43, 53, .64); }
+    .health-row:last-child { border-bottom: 0; }
+    .health-name { display: block; font-size: .72rem; font-weight: 700; }
+    .health-detail { display: block; color: var(--muted); font-size: .62rem; }
+    .health-value { color: #cce0da; font-size: .65rem; text-align: right; }
+    .credit-proof { padding: 12px; border: 1px solid rgba(141, 255, 99, .2); border-radius: 9px; background: radial-gradient(circle at 100% 0, rgba(141, 255, 99, .11), transparent 11rem), rgba(141, 255, 99, .035); }
+    .credit-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .credit-label { font-size: .69rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .verified { color: var(--green); font-size: .62rem; font-weight: 800; }
+    .credit-number { margin-top: 10px; font-size: 2.25rem; line-height: 1; font-weight: 860; }
+    .credit-note { margin-top: 5px; color: var(--muted); font-size: .65rem; line-height: 1.4; }
+    .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 11px; }
+    .proof-stat { padding: 7px; border-radius: 7px; background: rgba(2, 8, 10, .55); }
+    .proof-stat strong { display: block; font-size: .86rem; }
+    .proof-stat span { color: var(--muted); font-size: .57rem; }
+
+    .activity-list { display: grid; }
+    .activity-item { display: grid; grid-template-columns: 34px 1fr auto; gap: 9px; align-items: center; padding: 9px 0; border-bottom: 1px solid rgba(27, 43, 53, .64); }
+    .activity-item:last-child { border-bottom: 0; }
+    .activity-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: var(--purple); background: rgba(168, 108, 255, .1); font-size: .75rem; font-weight: 850; }
+    .activity-title { display: block; font-size: .69rem; font-weight: 730; }
+    .activity-sub { display: block; margin-top: 2px; color: var(--muted); font-size: .59rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .activity-time { color: var(--muted); font-size: .58rem; white-space: nowrap; }
+    .badge-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge { padding: 6px 8px; border: 1px solid rgba(255, 200, 87, .2); border-radius: 7px; color: #f6dfa5; background: rgba(255, 200, 87, .055); font-size: .61rem; font-weight: 730; text-transform: capitalize; }
+    .source-box { color: #b5c8c2; font-size: .64rem; line-height: 1.48; }
+    .source-box strong { color: var(--text); }
+    .error-text { margin-top: 8px; color: var(--red); overflow-wrap: anywhere; }
+
+    @media (max-width: 1240px) {
+      .workspace { height: auto; min-height: 0; grid-template-columns: 230px minmax(480px, 1fr); }
+      .right-rail { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); overflow: visible; }
+      .metric-strip { grid-template-columns: repeat(3, 1fr); }
+      .topbar { grid-template-columns: auto 1fr; }
+      .live-cluster { justify-self: end; }
+      .nav { display: none; }
+      .center-column { height: 780px; }
+    }
+    @media (max-width: 820px) {
+      .topbar { grid-template-columns: 1fr; gap: 8px; padding: 10px 12px; }
+      .live-cluster { width: 100%; justify-self: stretch; justify-content: space-between; }
+      .metric-strip { padding: 0; grid-template-columns: repeat(2, 1fr); }
+      .workspace { display: flex; flex-direction: column; padding: 6px; }
+      .left-rail, .right-rail { display: grid; grid-template-columns: 1fr; overflow: visible; }
+      .center-column { order: -1; height: auto; grid-template-rows: 62vh 300px; }
+      .map-panel, #map { min-height: 0; }
+      .map-readout { display: none; }
+      th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6) { display: none; }
+    }
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <div><p class="eyebrow">Pi 5 · 1090 MHz · ADS-B</p><h1>Canadaverse <span>WDG Airspace</span></h1></div>
-    <div id="overall" class="pill" aria-live="polite"><i class="dot"></i><span>Connecting…</span></div>
+  <header class="topbar">
+    <a class="brand" href="#map-view" aria-label="Royal City Recon dashboard">
+      <span class="crest" aria-hidden="true">
+        <svg viewBox="0 0 64 64" fill="none">
+          <path d="M12 47h40l-3.5-24-10 9L32 13l-6.5 19-10-9L12 47Z" stroke="#8dff63" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M16 52h32M22 41h20" stroke="#55d9ff" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="12" cy="18" r="3" fill="#55d9ff"/><circle cx="32" cy="8" r="3" fill="#8dff63"/><circle cx="52" cy="18" r="3" fill="#55d9ff"/>
+        </svg>
+      </span>
+      <span>
+        <span class="brand-title">ROYAL CITY RECON</span>
+        <span class="brand-subtitle">WDG Operations Dashboard</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="Dashboard sections">
+      <a class="active" href="#map-view">Map</a>
+      <a href="#airspace">Airspace</a>
+      <a href="#activity">Activity</a>
+    </nav>
+    <div class="live-cluster">
+      <div class="live-pill" id="overall" aria-live="polite">
+        <span class="dot" id="overall-dot"></span>
+        <span id="overall-text">Connecting to Pi 5</span>
+      </div>
+      <div class="refresh-meta">Public read-only<br><span id="updated">Waiting for data</span></div>
+    </div>
   </header>
 
-  <section class="stats" aria-label="Aircraft statistics">
-    <div class="card"><span>Unique logged</span><strong id="logged">—</strong></div>
-    <div class="card"><span>Confirmed sent</span><strong id="sent">—</strong></div>
-    <div class="card"><span>Pending</span><strong id="pending">—</strong></div>
-    <div class="card"><span>WDG credited</span><strong id="credited">—</strong></div>
-    <div class="card"><span>Already seen</span><strong id="seen">—</strong></div>
-    <div class="card"><span>SBS messages</span><strong id="messages">—</strong></div>
-    <div class="card"><span>Upload batches</span><strong id="batches">—</strong></div>
+  <section class="metric-strip" aria-label="Royal City Recon totals">
+    <article class="metric" style="--metric-color:var(--green)"><div class="metric-label">WDG profile total</div><div class="metric-value" id="wdg-total">—</div><div class="metric-note">Linked member collections</div></article>
+    <article class="metric" style="--metric-color:var(--cyan)"><div class="metric-label">Wi‑Fi APs</div><div class="metric-value" id="wifi-total">—</div><div class="metric-note">WDG account total</div></article>
+    <article class="metric" style="--metric-color:var(--purple)"><div class="metric-label">BLE devices</div><div class="metric-value" id="ble-total">—</div><div class="metric-note">WDG account total</div></article>
+    <article class="metric" style="--metric-color:var(--green-2)"><div class="metric-label">MeshCore nodes</div><div class="metric-value" id="mesh-total">—</div><div class="metric-note">WDG account total</div></article>
+    <article class="metric" style="--metric-color:var(--gold)"><div class="metric-label">Aircraft credited</div><div class="metric-value" id="aircraft-credited">—</div><div class="metric-note">Confirmed by WDG profile</div></article>
+    <article class="metric" style="--metric-color:var(--red)"><div class="metric-label">7-day activity</div><div class="metric-value" id="recent-total">—</div><div class="metric-note">Recent verified collections</div></article>
   </section>
 
-  <section class="layout">
-    <div class="panel">
-      <div class="panel-head"><h2>Aircraft map</h2><span id="map-count" class="subtle">Waiting for positions</span></div>
-      <div id="map" role="region" aria-label="Map of recently logged aircraft"></div>
-    </div>
-    <aside class="panel">
-      <div class="panel-head"><h2>System status</h2><span id="updated" class="subtle">—</span></div>
-      <div class="detail">
-        <div class="status-row"><span>Decoder</span><span id="decoder">—</span></div>
-        <div class="status-row"><span>WDG API</span><span id="api">—</span></div>
-        <div class="status-row"><span>Upload state</span><span id="upload-state">—</span></div>
-        <div class="status-row"><span>Last aircraft</span><span id="last-aircraft">—</span></div>
-        <div class="status-row"><span>Last upload</span><span id="last-upload">—</span></div>
-        <div class="status-row"><span>Version</span><span id="version">—</span></div>
-        <div class="status-row"><span>Latest error</span><span id="error">None</span></div>
-      </div>
+  <main class="workspace">
+    <aside class="left-rail" aria-label="Team and map controls">
+      <section class="panel">
+        <div class="team-card">
+          <div class="team-level"><span class="eyebrow">Team overview</span><span class="team-id" id="team-id">WDG team</span></div>
+          <div class="team-name" id="team-name">Royal City Recon</div>
+          <div class="team-score" id="team-score">—</div>
+          <div class="team-score-label">linked member profile collections</div>
+          <div class="mini-grid">
+            <div class="mini-stat"><strong id="today-total">—</strong><span>today</span></div>
+            <div class="mini-stat"><strong id="reinforced-total">—</strong><span>reinforced</span></div>
+            <div class="mini-stat"><strong id="badge-total">—</strong><span>badges</span></div>
+            <div class="mini-stat"><strong id="activity-cell-total">—</strong><span>recent cells</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><span class="panel-title">Map layers</span><span class="panel-tag">Live</span></div>
+        <div class="section-body layer-list">
+          <button class="layer-toggle" data-layer="grid" aria-pressed="true" style="--layer-color:var(--purple)">
+            <span class="layer-icon">⬡</span><span><span class="layer-name">Activity grid</span><span class="layer-note">Coarse recent capture cells</span></span><span class="switch"></span>
+          </button>
+          <button class="layer-toggle" data-layer="aircraft" aria-pressed="true" style="--layer-color:var(--cyan)">
+            <span class="layer-icon">✈</span><span><span class="layer-name">ADS‑B aircraft</span><span class="layer-note">Positioned Pi 5 detections</span></span><span class="switch"></span>
+          </button>
+          <button class="layer-toggle" data-layer="vectors" aria-pressed="true" style="--layer-color:var(--gold)">
+            <span class="layer-icon">↗</span><span><span class="layer-name">Heading vectors</span><span class="layer-note">Direction, not a flight trail</span></span><span class="switch"></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><span class="panel-title">Collection mix</span><span class="panel-tag">WDG</span></div>
+        <div class="section-body">
+          <div class="collection-row"><div class="collection-line"><span>Wi‑Fi</span><strong id="mix-wifi">—</strong></div><div class="bar"><span id="bar-wifi" style="--bar-color:var(--cyan)"></span></div></div>
+          <div class="collection-row"><div class="collection-line"><span>Bluetooth LE</span><strong id="mix-ble">—</strong></div><div class="bar"><span id="bar-ble" style="--bar-color:var(--purple)"></span></div></div>
+          <div class="collection-row"><div class="collection-line"><span>MeshCore</span><strong id="mix-mesh">—</strong></div><div class="bar"><span id="bar-mesh" style="--bar-color:var(--green-2)"></span></div></div>
+          <div class="collection-row"><div class="collection-line"><span>Aircraft</span><strong id="mix-aircraft">—</strong></div><div class="bar"><span id="bar-aircraft" style="--bar-color:var(--gold)"></span></div></div>
+        </div>
+      </section>
+
+      <section class="panel"><div class="section-body"><div class="privacy-note"><strong>Public map privacy</strong><br>Capture locations are grouped into roughly 1 km activity cells. The grid shows recent activity, not territory ownership, and exposes no SSIDs or BSSIDs.</div></div></section>
     </aside>
-  </section>
 
-  <section class="panel table-panel">
-    <div class="panel-head"><h2>Recently seen aircraft</h2><span class="subtle">Newest positions first</span></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Callsign</th><th>ICAO</th><th>Altitude</th><th>Speed</th><th>Heading</th><th>Last seen</th><th>WDG</th></tr></thead>
-        <tbody id="aircraft-table"><tr><td colspan="7" class="subtle">Waiting for aircraft…</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-</main>
+    <section class="center-column">
+      <section class="panel map-panel" id="map-view" aria-label="Royal City Recon activity and aircraft map">
+        <div id="map"></div>
+        <div class="map-toolbar">
+          <div class="map-readout mono" id="map-readout">43.54, -80.25 · Zoom 9</div>
+          <button class="map-action" id="fit-map" type="button">Fit activity</button>
+        </div>
+        <div class="map-legend" aria-hidden="true">
+          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--purple)"></span>Recent activity cell</span>
+          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--cyan)"></span>Active aircraft</span>
+          <span class="legend-key"><span class="legend-swatch" style="--swatch:var(--gold)"></span>Heading vector</span>
+        </div>
+      </section>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script>
-  const el = id => document.getElementById(id);
-  const number = value => Number(value || 0).toLocaleString();
-  const time = epoch => epoch ? new Date(epoch * 1000).toLocaleString() : "—";
-  const map = L.map("map", {zoomControl:true}).setView([43.55, -80.25], 9);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom:19,
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
-  const markers = new Map();
-  let fitted = false;
+      <section class="panel aircraft-panel" id="airspace">
+        <div class="panel-header"><span class="panel-title">Aircraft collections</span><span class="panel-tag" id="aircraft-summary">Waiting</span></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Last seen</th><th>Flight / callsign</th><th>ICAO</th><th>Altitude</th><th>Speed</th><th>Heading</th><th>WDG status</th></tr></thead>
+            <tbody id="aircraft-body"><tr><td colspan="7" class="empty">Waiting for the Pi 5 receiver…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
 
-  function popup(row) {
-    const box = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "popup-title";
-    title.textContent = row.callsign || row.icao;
-    box.append(title);
-    [["ICAO", row.icao], ["Altitude", `${number(row.alt_ft)} ft`], ["Speed", `${number(row.speed_kt)} kt`],
-     ["Heading", `${number(row.heading)}°`], ["WDG", row.upload_status]].forEach(([name, value]) => {
-      const line = document.createElement("div");
-      const label = document.createElement("strong");
-      label.textContent = `${name}: `;
-      line.append(label, document.createTextNode(value));
-      box.append(line);
-    });
-    return box;
-  }
+    <aside class="right-rail" aria-label="System and activity status">
+      <section class="panel">
+        <div class="panel-header"><span class="panel-title">Airspace status</span><span class="panel-tag" id="system-status">Checking</span></div>
+        <div class="section-body health-list">
+          <div class="health-row"><span class="dot" id="decoder-dot"></span><span><span class="health-name">1090 MHz receiver</span><span class="health-detail">dump1090 + RTL‑SDR</span></span><span class="health-value" id="decoder">Waiting</span></div>
+          <div class="health-row"><span class="dot" id="sbs-dot"></span><span><span class="health-name">Aircraft stream</span><span class="health-detail">SBS/BaseStation feed</span></span><span class="health-value" id="sbs">Waiting</span></div>
+          <div class="health-row"><span class="dot" id="wdg-dot"></span><span><span class="health-name">WDG Wars API</span><span class="health-detail">Authenticated uploader</span></span><span class="health-value" id="api">Waiting</span></div>
+          <div class="health-row"><span class="dot" id="queue-dot"></span><span><span class="health-name">Upload queue</span><span class="health-detail" id="upload-state">Starting</span></span><span class="health-value" id="pending">—</span></div>
+        </div>
+      </section>
 
-  function updateMap(rows) {
-    const present = new Set();
-    rows.forEach(row => {
-      present.add(row.icao);
-      const latlng = [row.lat, row.lon];
-      const options = {radius:7, weight:2, color:row.upload_status === "uploaded" ? "#38db9b" : "#ffd166", fillColor:"#53d7ff", fillOpacity:.7};
-      let marker = markers.get(row.icao);
-      if (!marker) {
-        marker = L.circleMarker(latlng, options).addTo(map);
-        markers.set(row.icao, marker);
-      } else {
-        marker.setLatLng(latlng).setStyle(options);
+      <section class="panel"><div class="section-body"><div class="credit-proof">
+        <div class="credit-head"><span class="credit-label">WDG aircraft credit</span><span class="verified" id="credit-verified">VERIFYING</span></div>
+        <div class="credit-number" id="credit-number">—</div>
+        <div class="credit-note" id="credit-note">Waiting for the authenticated WDG profile.</div>
+        <div class="proof-grid">
+          <div class="proof-stat"><strong id="local-logged">—</strong><span>logged locally</span></div>
+          <div class="proof-stat"><strong id="local-sent">—</strong><span>confirmed sent</span></div>
+          <div class="proof-stat"><strong id="upload-batches">—</strong><span>upload batches</span></div>
+        </div>
+      </div></div></section>
+
+      <section class="panel" id="activity">
+        <div class="panel-header"><span class="panel-title">Recent WDG activity</span><span class="panel-tag" id="activity-total">Coarse grid</span></div>
+        <div class="section-body activity-list" id="activity-list"><div class="empty">Waiting for activity cells…</div></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><span class="panel-title">Team badges</span><span class="panel-tag" id="badge-label">0 earned</span></div>
+        <div class="section-body badge-list" id="badge-list"><span class="muted">Waiting for WDG…</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><span class="panel-title">Data sources</span><span class="panel-tag">Read-only</span></div>
+        <div class="section-body source-box">
+          <strong>WDG totals and team affiliation:</strong> authenticated member <span class="mono">/api/me</span>, reduced to a safe public snapshot. These are linked-profile totals, not a gang-wide leaderboard.<br>
+          <strong>Aircraft:</strong> this Pi 5 RTL‑SDR, persistent local log, and upload acknowledgements.<br>
+          <strong>Refresh:</strong> page 5s · WDG profile <span id="wdg-refreshed">waiting</span>.<br>
+          <strong>Build:</strong> <span class="mono" id="version">—</span>.
+          <div class="error-text" id="error" hidden></div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    "use strict";
+    const element = function (id) { return document.getElementById(id); };
+    const number = function (value) { return Number(value || 0).toLocaleString(); };
+    const validPoint = function (item) {
+      return Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)) &&
+        Number(item.lat) >= -90 && Number(item.lat) <= 90 &&
+        Number(item.lon) >= -180 && Number(item.lon) <= 180;
+    };
+    const escapeHtml = function (value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
+        return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[character];
+      });
+    };
+    const relativeTime = function (value) {
+      if (!value) return "never";
+      const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+      if (!Number.isFinite(seconds)) return "unknown";
+      if (seconds < 60) return seconds + "s ago";
+      if (seconds < 3600) return Math.floor(seconds / 60) + "m ago";
+      if (seconds < 86400) return Math.floor(seconds / 3600) + "h ago";
+      return Math.floor(seconds / 86400) + "d ago";
+    };
+    const epochRelative = function (value) {
+      return value ? relativeTime(new Date(Number(value) * 1000).toISOString()) : "never";
+    };
+    const setDot = function (id, state) {
+      element(id).className = "dot" + (state === true ? " ok" : state === false ? " bad" : "");
+    };
+
+    const layerState = { grid: true, aircraft: true, vectors: true };
+    let latestData = null;
+    let initialFit = false;
+    let map = null;
+    let aircraftLayer = null;
+    let vectorLayer = null;
+    let gridLayer = null;
+    let lastBounds = [];
+
+    function setupMap() {
+      if (!window.L) throw new Error("Map library did not load");
+      map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([43.54, -80.25], 9);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+      gridLayer = L.layerGroup().addTo(map);
+      vectorLayer = L.layerGroup().addTo(map);
+      aircraftLayer = L.layerGroup().addTo(map);
+      map.on("moveend zoomend", updateMapReadout);
+      updateMapReadout();
+    }
+
+    function updateMapReadout() {
+      if (!map) return;
+      const center = map.getCenter();
+      element("map-readout").textContent = center.lat.toFixed(2) + ", " + center.lng.toFixed(2) + " · Zoom " + map.getZoom();
+    }
+
+    function hexagon(lat, lon, radius) {
+      const points = [];
+      const lonRadius = radius / Math.max(.25, Math.cos(lat * Math.PI / 180));
+      for (let angle = 0; angle < 360; angle += 60) {
+        const radians = angle * Math.PI / 180;
+        points.push([lat + radius * Math.sin(radians), lon + lonRadius * Math.cos(radians)]);
       }
-      marker.bindPopup(popup(row));
-    });
-    for (const [icao, marker] of markers) if (!present.has(icao)) { map.removeLayer(marker); markers.delete(icao); }
-    if (!fitted && rows.length) {
-      const bounds = L.latLngBounds(rows.map(row => [row.lat, row.lon]));
-      rows.length === 1 ? map.setView(bounds.getCenter(), 10) : map.fitBounds(bounds.pad(.18), {maxZoom:11});
-      fitted = true;
+      return points;
     }
-    el("map-count").textContent = rows.length ? `${number(rows.length)} recent positions` : "Waiting for positions";
-  }
 
-  function updateTable(rows) {
-    const body = el("aircraft-table");
-    body.replaceChildren();
-    if (!rows.length) {
-      const cell = document.createElement("td"); cell.colSpan = 7; cell.className = "subtle"; cell.textContent = "No positioned aircraft logged yet.";
-      const row = document.createElement("tr"); row.append(cell); body.append(row); return;
+    function projectedPoint(aircraft) {
+      const distanceNm = Math.max(3, Math.min(50, Number(aircraft.speed_kt || 0) * .1));
+      const distanceKm = distanceNm * 1.852;
+      const bearing = Number(aircraft.heading || 0) * Math.PI / 180;
+      const lat = Number(aircraft.lat);
+      const lon = Number(aircraft.lon);
+      const dLat = distanceKm * Math.cos(bearing) / 111.32;
+      const dLon = distanceKm * Math.sin(bearing) / (111.32 * Math.max(.25, Math.cos(lat * Math.PI / 180)));
+      return [lat + dLat, lon + dLon];
     }
-    rows.slice(0, 100).forEach(item => {
-      const row = document.createElement("tr");
-      [item.callsign || "—", item.icao, `${number(item.alt_ft)} ft`, `${number(item.speed_kt)} kt`, `${number(item.heading)}°`, time(item.last_seen), item.upload_status]
-        .forEach((value, index) => { const cell = document.createElement("td"); cell.textContent = value; if (index === 6) cell.className = value; row.append(cell); });
-      body.append(row);
-    });
-  }
 
-  async function refresh() {
+    function fitMap() {
+      if (!map || !lastBounds.length) return;
+      map.fitBounds(L.latLngBounds(lastBounds).pad(.12), { maxZoom: 10, animate: true });
+    }
+
+    function renderMap(data) {
+      if (!map) return;
+      aircraftLayer.clearLayers();
+      vectorLayer.clearLayers();
+      gridLayer.clearLayers();
+      lastBounds = [];
+      const wdg = data.runtime.wdg || {};
+      const cells = wdg.activity_grid && Array.isArray(wdg.activity_grid.cells) ? wdg.activity_grid.cells : [];
+
+      if (layerState.grid) {
+        cells.forEach(function (cell) {
+          if (!validPoint(cell)) return;
+          const intensity = Math.min(1, .22 + Number(cell.aps || 0) / 28);
+          const polygon = L.polygon(hexagon(Number(cell.lat), Number(cell.lon), .0062), {
+            color: "#a86cff", weight: 1.25, opacity: .76,
+            fillColor: Number(cell.aps || 0) >= 10 ? "#a86cff" : "#6250c7",
+            fillOpacity: .12 + intensity * .26
+          });
+          const defenders = Array.isArray(cell.defenders) && cell.defenders.length ? cell.defenders.join(", ") : "No defender label";
+          polygon.bindPopup(
+            '<div class="popup-title">Recent activity cell</div>' +
+            '<div class="popup-row"><strong>' + number(cell.aps) + '</strong> AP observations · ' + number(cell.events) + ' capture events</div>' +
+            '<div class="popup-row">Encountered: ' + escapeHtml(defenders) + '</div>' +
+            '<div class="popup-row">Last activity ' + escapeHtml(relativeTime(cell.last_seen)) + '</div>' +
+            '<div class="popup-row muted">Coarse cell; not territory ownership</div>'
+          );
+          polygon.addTo(gridLayer);
+          L.circleMarker([Number(cell.lat), Number(cell.lon)], {
+            radius: 3 + Math.min(5, Number(cell.events || 0)), color: "#d5b8ff", weight: 1, fillColor: "#a86cff", fillOpacity: .85
+          }).addTo(gridLayer);
+          lastBounds.push([Number(cell.lat), Number(cell.lon)]);
+        });
+      }
+
+      if (layerState.aircraft) {
+        data.aircraft.filter(validPoint).forEach(function (aircraft) {
+          const age = Math.max(0, Date.now() / 1000 - Number(aircraft.last_seen || 0));
+          const active = age < 300;
+          const heading = Number(aircraft.heading || 0);
+          const icon = L.divIcon({
+            className: "", iconSize: [34, 34], iconAnchor: [17, 17],
+            html: '<div class="plane-marker' + (active ? "" : " stale") + '"><span class="plane-glyph" style="transform:rotate(' + heading + 'deg)">✈</span></div>'
+          });
+          const marker = L.marker([Number(aircraft.lat), Number(aircraft.lon)], { icon: icon });
+          marker.bindPopup(
+            '<div class="popup-title">' + escapeHtml(aircraft.callsign || aircraft.icao) + '</div>' +
+            '<div class="popup-row">ICAO <span class="mono">' + escapeHtml(aircraft.icao) + '</span></div>' +
+            '<div class="popup-row">' + number(aircraft.alt_ft) + ' ft · ' + number(aircraft.speed_kt) + ' kt · ' + heading + '°</div>' +
+            '<div class="popup-row">Last seen ' + escapeHtml(epochRelative(aircraft.last_seen)) + '</div>' +
+            '<div class="popup-row">WDG ' + escapeHtml(aircraft.upload_status) + '</div>'
+          );
+          marker.addTo(aircraftLayer);
+          lastBounds.push([Number(aircraft.lat), Number(aircraft.lon)]);
+          if (layerState.vectors && active && Number(aircraft.speed_kt || 0) > 0) {
+            L.polyline([[Number(aircraft.lat), Number(aircraft.lon)], projectedPoint(aircraft)], {
+              color: "#ffc857", weight: 1.2, opacity: .58, dashArray: "4 7"
+            }).addTo(vectorLayer);
+          }
+        });
+      }
+      if (!initialFit && lastBounds.length) { initialFit = true; fitMap(); }
+    }
+
+    function renderAircraft(data) {
+      const body = element("aircraft-body");
+      const rows = data.aircraft.slice(0, 100);
+      const active = rows.filter(function (aircraft) {
+        return Math.max(0, Date.now() / 1000 - Number(aircraft.last_seen || 0)) < 300;
+      }).length;
+      element("aircraft-summary").textContent = active + " active · " + data.counts.total + " logged";
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">No positioned aircraft logged yet.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(function (aircraft) {
+        const pending = aircraft.upload_status !== "uploaded";
+        return "<tr>" +
+          "<td>" + escapeHtml(epochRelative(aircraft.last_seen)) + "</td>" +
+          '<td class="flight">' + escapeHtml(aircraft.callsign || "Unknown") + "</td>" +
+          '<td class="mono">' + escapeHtml(aircraft.icao) + "</td>" +
+          "<td>" + number(aircraft.alt_ft) + " ft</td>" +
+          "<td>" + number(aircraft.speed_kt) + " kt</td>" +
+          "<td>" + number(aircraft.heading) + "°</td>" +
+          '<td><span class="status-chip' + (pending ? " pending" : "") + '">' + (pending ? "Pending" : "Sent") + "</span></td>" +
+          "</tr>";
+      }).join("");
+    }
+
+    function renderActivity(wdg) {
+      const grid = wdg.activity_grid || {};
+      const cells = Array.isArray(grid.cells) ? grid.cells : [];
+      const list = element("activity-list");
+      element("activity-cell-total").textContent = number(cells.length);
+      element("activity-total").textContent = cells.length + " cells";
+      if (!cells.length) {
+        list.innerHTML = '<div class="empty">No recent public activity cells.</div>';
+        return;
+      }
+      list.innerHTML = cells.slice(0, 6).map(function (cell) {
+        const defenders = Array.isArray(cell.defenders) && cell.defenders.length ? cell.defenders.join(", ") : "No team label";
+        return '<div class="activity-item">' +
+          '<span class="activity-icon">+' + number(cell.aps) + "</span>" +
+          '<span><span class="activity-title">' + number(cell.events) + " capture events · " + number(cell.aps) + " APs</span>" +
+          '<span class="activity-sub">Encountered: ' + escapeHtml(defenders) + "</span></span>" +
+          '<span class="activity-time">' + escapeHtml(relativeTime(cell.last_seen)) + "</span>" +
+          "</div>";
+      }).join("");
+    }
+
+    function renderBadges(wdg) {
+      const badges = Array.isArray(wdg.badges) ? wdg.badges : [];
+      element("badge-total").textContent = number(badges.length);
+      element("badge-label").textContent = badges.length + " earned";
+      element("badge-list").innerHTML = badges.length
+        ? badges.map(function (badge) { return '<span class="badge">' + escapeHtml(badge.replaceAll("_", " ")) + "</span>"; }).join("")
+        : '<span class="muted">No public badges reported.</span>';
+    }
+
+    function renderCollections(stats) {
+      const values = { wifi: Number(stats.wifi || 0), ble: Number(stats.ble || 0), mesh: Number(stats.mesh || 0), aircraft: Number(stats.aircraft || 0) };
+      const maximum = Math.max(1, values.wifi, values.ble, values.mesh, values.aircraft);
+      Object.keys(values).forEach(function (name) {
+        element("mix-" + name).textContent = number(values[name]);
+        element("bar-" + name).style.width = Math.max(values[name] ? 2 : 0, values[name] / maximum * 100) + "%";
+      });
+    }
+
+    function renderStatus(data) {
+      const runtime = data.runtime;
+      const counts = data.counts;
+      const uploads = data.uploads;
+      const wdg = runtime.wdg || {};
+      const stats = wdg.stats || {};
+      const team = wdg.team || {};
+      const adsb = wdg.adsb || {};
+      const receiverReady = runtime.dump1090_running === true;
+      const streamReady = runtime.sbs_connected === true;
+      const apiReady = runtime.auth_ok === true;
+      const queueReady = Number(counts.pending || 0) === 0;
+      const ready = receiverReady && streamReady && apiReady;
+
+      setDot("overall-dot", ready);
+      setDot("decoder-dot", receiverReady);
+      setDot("sbs-dot", streamReady);
+      setDot("wdg-dot", apiReady ? true : runtime.auth_ok === false ? false : null);
+      setDot("queue-dot", queueReady);
+      element("overall-text").textContent = ready ? "Pi 5 + WDG online" : "Service attention needed";
+      element("decoder").textContent = receiverReady ? "Running" : "Stopped";
+      element("sbs").textContent = streamReady ? number(runtime.messages) + " messages" : "Disconnected";
+      element("api").textContent = apiReady ? "Authenticated" : runtime.auth_ok === false ? "Rejected" : "Waiting";
+      element("pending").textContent = number(counts.pending) + " pending";
+      element("upload-state").textContent = runtime.upload_state || "Unknown";
+      element("system-status").textContent = ready ? "All systems live" : "Check status";
+
+      element("wdg-total").textContent = stats.total == null ? "—" : number(stats.total);
+      element("wifi-total").textContent = stats.wifi == null ? "—" : number(stats.wifi);
+      element("ble-total").textContent = stats.ble == null ? "—" : number(stats.ble);
+      element("mesh-total").textContent = stats.mesh == null ? "—" : number(stats.mesh);
+      element("aircraft-credited").textContent = stats.aircraft == null ? "—" : number(stats.aircraft);
+      element("recent-total").textContent = stats.recent_7d == null ? "—" : number(stats.recent_7d);
+      element("team-name").textContent = team.name || "Royal City Recon";
+      element("team-id").textContent = team.id ? "WDG team #" + team.id + (team.role ? " · " + team.role + " profile" : "") : "WDG team";
+      element("team-score").textContent = stats.total == null ? "—" : number(stats.total);
+      element("today-total").textContent = stats.recent_today == null ? "—" : number(stats.recent_today);
+      element("reinforced-total").textContent = stats.reinforce_total == null ? "—" : number(stats.reinforce_total);
+
+      element("credit-number").textContent = stats.aircraft == null ? "—" : number(stats.aircraft);
+      element("credit-verified").textContent = apiReady && stats.aircraft != null ? "WDG VERIFIED" : "VERIFYING";
+      element("credit-note").textContent = apiReady && stats.aircraft != null
+        ? "The authenticated WDG profile reports " + number(stats.aircraft) + " aircraft credits; ADS-B device record reports " + number(adsb.aircraft) + "."
+        : "Waiting for the authenticated WDG profile.";
+      element("local-logged").textContent = number(counts.total);
+      element("local-sent").textContent = number(counts.uploaded);
+      element("upload-batches").textContent = number(uploads.batches);
+      element("wdg-refreshed").textContent = wdg.refreshed_at ? relativeTime(wdg.refreshed_at) : "waiting";
+      element("version").textContent = runtime.version || "unknown";
+      element("updated").textContent = "Updated " + new Date(data.generated_at).toLocaleTimeString();
+      const error = element("error");
+      error.hidden = !runtime.last_error;
+      error.textContent = runtime.last_error || "";
+      renderCollections(stats);
+      renderActivity(wdg);
+      renderBadges(wdg);
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        if (!response.ok) throw new Error("Dashboard API returned HTTP " + response.status);
+        latestData = await response.json();
+        renderStatus(latestData);
+        renderMap(latestData);
+        renderAircraft(latestData);
+      } catch (error) {
+        setDot("overall-dot", false);
+        element("overall-text").textContent = "Dashboard disconnected";
+        element("system-status").textContent = "Offline";
+        element("error").hidden = false;
+        element("error").textContent = error.message;
+      }
+    }
+
+    document.querySelectorAll(".layer-toggle").forEach(function (button) {
+      button.addEventListener("click", function () {
+        const name = button.dataset.layer;
+        layerState[name] = !layerState[name];
+        button.setAttribute("aria-pressed", String(layerState[name]));
+        if (latestData) renderMap(latestData);
+      });
+    });
+    element("fit-map").addEventListener("click", fitMap);
     try {
-      const response = await fetch("/api/dashboard", {cache:"no-store"});
-      if (!response.ok) throw new Error(`dashboard HTTP ${response.status}`);
-      const data = await response.json();
-      const r = data.runtime, c = data.counts, u = data.uploads;
-      el("logged").textContent = number(c.total); el("sent").textContent = number(c.uploaded); el("pending").textContent = number(c.pending);
-      el("credited").textContent = number(u.imported); el("seen").textContent = number(u.already_seen); el("messages").textContent = number(r.messages); el("batches").textContent = number(u.batches);
-      el("decoder").textContent = r.dump1090_running && r.sbs_connected ? "Receiving" : "Not ready";
-      el("api").textContent = r.auth_ok === true ? "Authenticated" : r.auth_ok === false ? "Rejected" : "Waiting";
-      el("upload-state").textContent = r.upload_state; el("last-aircraft").textContent = r.last_aircraft ? `${r.last_aircraft.callsign || r.last_aircraft.icao} · ${r.last_aircraft.at}` : "—";
-      el("last-upload").textContent = r.last_upload ? `${r.last_upload.sent} sent · ${r.last_upload.imported} new · ${r.last_upload.at}` : "—";
-      el("version").textContent = r.version; el("error").textContent = r.last_error || "None"; el("error").className = r.last_error ? "error" : "";
-      el("updated").textContent = new Date(data.generated_at).toLocaleTimeString();
-      const ready = r.dump1090_running && r.sbs_connected && r.auth_ok === true;
-      el("overall").className = `pill ${ready ? "ok" : r.auth_ok === false ? "bad" : ""}`;
-      el("overall").querySelector("span").textContent = ready ? "Receiver and WDG online" : "Starting or waiting";
-      updateMap(data.aircraft); updateTable(data.aircraft);
+      setupMap();
+      refresh();
+      window.setInterval(refresh, 5000);
     } catch (error) {
-      el("overall").className = "pill bad";
-      el("overall").querySelector("span").textContent = "Dashboard disconnected";
-      el("error").textContent = error.message;
-      el("error").className = "error";
+      setDot("overall-dot", false);
+      element("overall-text").textContent = "Map could not start";
+      element("error").hidden = false;
+      element("error").textContent = error.message;
     }
-  }
-  refresh();
-  setInterval(refresh, 5000);
-</script>
+  </script>
 </body>
 </html>

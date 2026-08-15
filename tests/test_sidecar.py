@@ -61,6 +61,62 @@ class SidecarTests(unittest.TestCase):
         self.assertEqual(envelope["sig"], expected)
         self.assertEqual(json.loads(base64.b64decode(envelope["data"])), data)
 
+    def test_public_wdg_profile_is_aggregated_and_redacted(self):
+        profile = {
+            "ok": True,
+            "username": "private-user",
+            "user_id": 42,
+            "gang": "Royal City Recon",
+            "gang_id": 581,
+            "gang_role": "member",
+            "total": 16515,
+            "wifi": 6740,
+            "ble": 9739,
+            "mesh": 22,
+            "aircraft": 14,
+            "recent_7d": 16480,
+            "recent_today": 3,
+            "reinforce_total": 1002,
+            "badges": ["plane_spotter", "gang_member"],
+            "devices": [
+                {"device_name": "private-phone", "networks": 100},
+                {
+                    "device_name": "adsb",
+                    "aircraft": 14,
+                    "uploads": 13,
+                    "last_upload": "2026-08-15 06:18:57+00",
+                },
+            ],
+            "recent_captures": [
+                {
+                    "lat": 43.42123456,
+                    "lng": -80.33456789,
+                    "ap_count": 4,
+                    "defender_gang": "Example Team",
+                    "when": "2026-08-15 06:00:00+00",
+                },
+                {
+                    "lat": 43.422,
+                    "lng": -80.333,
+                    "ap_count": 2,
+                    "defender_gang": "Example Team",
+                    "when": "2026-08-15 06:05:00+00",
+                },
+            ],
+        }
+        public = sidecar.public_wdg_profile(profile)
+        encoded = json.dumps(public)
+        self.assertEqual(public["team"]["name"], "Royal City Recon")
+        self.assertEqual(public["stats"]["aircraft"], 14)
+        self.assertEqual(public["adsb"]["uploads"], 13)
+        self.assertEqual(public["adsb"]["last_upload"], "2026-08-15T06:18:57+00:00")
+        self.assertEqual(public["activity_grid"]["cells"][0]["events"], 2)
+        self.assertEqual(public["activity_grid"]["cells"][0]["aps"], 6)
+        self.assertNotIn("private-user", encoded)
+        self.assertNotIn("private-phone", encoded)
+        self.assertNotIn("43.42123456", encoded)
+        self.assertNotIn("user_id", encoded)
+
     def test_store_deduplicates_by_icao_and_persists_upload_state(self):
         with tempfile.TemporaryDirectory() as directory:
             store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
