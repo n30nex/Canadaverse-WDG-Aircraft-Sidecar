@@ -9,7 +9,6 @@ from contextlib import contextmanager
 import csv
 import hashlib
 import hmac
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -28,16 +27,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.4"
+VERSION = "1.0.0"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
-DEFAULT_TERRITORY_URL = (
-    "https://wdgwars.pl/api/member-territories"
-    "?compact=1&zoom=10&bbox=-80.85%2C43.20%2C-79.65%2C43.80"
-)
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
 API_KEY_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
-COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def utc_now() -> str:
@@ -150,17 +144,6 @@ class Store:
                 )
                 """
             )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS upload_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    uploaded_at INTEGER NOT NULL,
-                    sent INTEGER NOT NULL,
-                    imported INTEGER NOT NULL,
-                    already_seen INTEGER NOT NULL
-                )
-                """
-            )
 
     def connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10)
@@ -240,33 +223,22 @@ class Store:
     def mark_uploaded(self, icaos: list[str], result: dict) -> None:
         if not icaos:
             return
-        imported = int(result.get("aircraft_imported", 0))
-        already_seen = int(result.get("aircraft_already_seen", 0))
         summary = json.dumps(
             {
-                "aircraft_imported": imported,
-                "aircraft_already_seen": already_seen,
+                "aircraft_imported": result.get("aircraft_imported", 0),
+                "aircraft_already_seen": result.get("aircraft_already_seen", 0),
             },
             separators=(",", ":"),
         )
         placeholders = ",".join("?" for _ in icaos)
         with self.session() as db:
-            uploaded_at = int(time.time())
             db.execute(
                 f"""
                 UPDATE aircraft
                 SET upload_status = 'uploaded', uploaded_at = ?, server_result = ?
                 WHERE icao IN ({placeholders})
                 """,
-                [uploaded_at, summary, *icaos],
-            )
-            db.execute(
-                """
-                INSERT INTO upload_events (
-                    uploaded_at, sent, imported, already_seen
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (uploaded_at, len(icaos), imported, already_seen),
+                [int(time.time()), summary, *icaos],
             )
 
     def counts(self) -> dict[str, int]:
@@ -279,33 +251,6 @@ class Store:
             counts[row["upload_status"]] = row["n"]
             counts["total"] += row["n"]
         return counts
-
-    def upload_stats(self) -> dict[str, int]:
-        with self.session() as db:
-            row = db.execute(
-                """
-                SELECT COUNT(*) AS batches,
-                       COALESCE(SUM(sent), 0) AS sent,
-                       COALESCE(SUM(imported), 0) AS imported,
-                       COALESCE(SUM(already_seen), 0) AS already_seen
-                FROM upload_events
-                """
-            ).fetchone()
-        return {name: int(row[name]) for name in ("batches", "sent", "imported", "already_seen")}
-
-    def recent(self, limit: int = 500) -> list[dict]:
-        with self.session() as db:
-            rows = db.execute(
-                """
-                SELECT icao, callsign, first_seen, last_seen, lat, lon,
-                       alt_ft, speed_kt, heading, upload_status, uploaded_at
-                FROM aircraft
-                ORDER BY last_seen DESC, icao
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        return [dict(row) for row in rows]
 
     def export_csv(self, output) -> None:
         fields = [
@@ -330,13 +275,11 @@ class RuntimeState:
             "started_at": utc_now(),
             "dump1090_running": False,
             "sbs_connected": False,
-            "web_running": False,
             "messages": 0,
             "auth_ok": None,
             "upload_state": "starting",
             "last_aircraft": None,
             "last_upload": None,
-            "wdg": None,
             "last_error": None,
         }
 
@@ -347,10 +290,6 @@ class RuntimeState:
     def increment(self, name: str, amount: int = 1) -> None:
         with self.lock:
             self.data[name] = int(self.data.get(name, 0)) + amount
-
-    def snapshot(self) -> dict:
-        with self.lock:
-            return dict(self.data)
 
     def flush(self, counts: dict[str, int]) -> None:
         with self.lock:
@@ -400,203 +339,6 @@ def request_json(url: str, api_key: str, body: bytes | None = None, timeout: int
         return json.loads(response.read().decode("utf-8"))
 
 
-def nonnegative_int(value) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 0
-
-
-def positive_int_or_none(value) -> int | None:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
-
-
-def public_timestamp(value) -> str:
-    text = str(value or "").strip().replace("Z", "+00:00")
-    if not text:
-        return ""
-    try:
-        parsed = datetime.fromisoformat(text)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
-    except ValueError:
-        return ""
-
-
-def public_wdg_territory(data: dict, own_team_id: int) -> dict:
-    """Return bounded game cells without WDG user or device identities."""
-    try:
-        grid_lat = float(data.get("grid_lat"))
-        grid_lon = float(data.get("grid_lng"))
-    except (TypeError, ValueError):
-        grid_lat = grid_lon = 0.02
-    if not 0 < grid_lat <= 1:
-        grid_lat = 0.02
-    if not 0 < grid_lon <= 1:
-        grid_lon = 0.02
-
-    gangs = data.get("gangs") if isinstance(data.get("gangs"), dict) else {}
-    cells = []
-    team_ids = set()
-    raw_cells = data.get("cells") if isinstance(data.get("cells"), list) else []
-    for raw in raw_cells[:2000]:
-        if not isinstance(raw, dict):
-            continue
-        try:
-            lat = float(raw.get("lat"))
-            lon = float(raw.get("lng"))
-        except (TypeError, ValueError):
-            continue
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            continue
-        team_id = nonnegative_int(raw.get("gang_id"))
-        team_ids.add(team_id)
-        cells.append({
-            "lat": round(lat, 6),
-            "lon": round(lon, 6),
-            "team_id": team_id,
-            "aps": nonnegative_int(raw.get("count")),
-            "contributors": nonnegative_int(raw.get("users")),
-            "relays": nonnegative_int(raw.get("relay")),
-            "towers": nonnegative_int(raw.get("towers")),
-            "ours": team_id == own_team_id,
-        })
-    cells.sort(key=lambda item: (item["lat"], item["lon"], item["team_id"]))
-
-    teams = {}
-    for team_id in sorted(team_ids):
-        raw = gangs.get(str(team_id))
-        raw = raw if isinstance(raw, dict) else {}
-        color = str(raw.get("color", "")).strip()
-        teams[str(team_id)] = {
-            "id": team_id,
-            "name": str(raw.get("name", "")).strip()[:80] or f"Team #{team_id}",
-            "color": color if COLOR_RE.fullmatch(color) else "#6b7280",
-            "members": nonnegative_int(raw.get("members")),
-        }
-
-    return {
-        "source": "WDG Wars /api/member-territories",
-        "region": "Guelph–Waterloo–Cambridge",
-        "refreshed_at": utc_now(),
-        "grid_through": public_timestamp(data.get("grid_through")),
-        "grid_lat": grid_lat,
-        "grid_lon": grid_lon,
-        "team_cells": sum(1 for cell in cells if cell["ours"]),
-        "teams": teams,
-        "cells": cells,
-        "note": "Bounded WDG ownership grid; user identities removed.",
-    }
-
-
-def public_wdg_profile(profile: dict) -> dict:
-    """Return a public, aggregation-first subset of the authenticated profile."""
-    devices = profile.get("devices") if isinstance(profile.get("devices"), list) else []
-    adsb_device = next(
-        (
-            item for item in devices
-            if isinstance(item, dict)
-            and str(item.get("device_name", "")).strip().lower() == "adsb"
-        ),
-        {},
-    )
-
-    cells: dict[tuple[float, float], dict] = {}
-    captures = profile.get("recent_captures")
-    if isinstance(captures, list):
-        for capture in captures[:100]:
-            if not isinstance(capture, dict):
-                continue
-            try:
-                lat = float(capture.get("lat"))
-                lon = float(capture.get("lng"))
-            except (TypeError, ValueError):
-                continue
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                continue
-            center = (round(lat, 2), round(lon, 2))
-            cell = cells.setdefault(
-                center,
-                {
-                    "id": f"{center[0]:.2f},{center[1]:.2f}",
-                    "lat": center[0],
-                    "lon": center[1],
-                    "events": 0,
-                    "aps": 0,
-                    "last_seen": "",
-                    "defenders": set(),
-                },
-            )
-            cell["events"] += 1
-            cell["aps"] += nonnegative_int(capture.get("ap_count"))
-            when = public_timestamp(capture.get("when"))
-            cell["last_seen"] = max(cell["last_seen"], when)
-            defender = str(capture.get("defender_gang", "")).strip()[:80]
-            if defender:
-                cell["defenders"].add(defender)
-
-    activity_cells = []
-    for cell in cells.values():
-        cell["defenders"] = sorted(cell["defenders"])[:3]
-        activity_cells.append(cell)
-    activity_cells.sort(key=lambda item: (item["last_seen"], item["id"]), reverse=True)
-
-    badges = profile.get("badges") if isinstance(profile.get("badges"), list) else []
-    credits = profile.get("credits") if isinstance(profile.get("credits"), dict) else {}
-    ranks = profile.get("your_rank") if isinstance(profile.get("your_rank"), dict) else {}
-    allowance = profile.get("new_ap_limit") if isinstance(profile.get("new_ap_limit"), dict) else {}
-    reinforce = profile.get("reinforce") if isinstance(profile.get("reinforce"), dict) else {}
-    return {
-        "source": "WDG Wars /api/me",
-        "scope": "linked_profile",
-        "refreshed_at": utc_now(),
-        "team": {
-            "name": str(profile.get("gang", "")).strip()[:80],
-            "id": nonnegative_int(profile.get("gang_id")),
-            "role": str(profile.get("gang_role", "")).strip()[:40],
-        },
-        "stats": {
-            name: nonnegative_int(profile.get(name))
-            for name in (
-                "total", "wifi", "ble", "mesh", "aircraft",
-                "recent_7d", "recent_today", "reinforce_total",
-            )
-        },
-        "badges": [str(badge)[:64] for badge in badges[:24] if isinstance(badge, str)],
-        "credits": {
-            name: nonnegative_int(credits.get(name))
-            for name in ("balance", "lifetime_earned", "bounties_completed")
-        },
-        "rank": {
-            name: positive_int_or_none(ranks.get(name))
-            for name in ("today", "week", "all_time")
-        } | {"top_n": nonnegative_int(ranks.get("top_n"))},
-        "new_ap_limit": {
-            name: nonnegative_int(allowance.get(name))
-            for name in ("used", "remaining", "cap")
-        } | {"window": str(allowance.get("window", "")).strip()[:32]},
-        "reinforce": {
-            "level_2": nonnegative_int(reinforce.get("2")),
-            "level_3": nonnegative_int(reinforce.get("3")),
-        },
-        "adsb": {
-            "aircraft": nonnegative_int(adsb_device.get("aircraft")),
-            "uploads": nonnegative_int(adsb_device.get("uploads")),
-            "last_upload": public_timestamp(adsb_device.get("last_upload")),
-        },
-        "activity_grid": {
-            "precision_degrees": 0.01,
-            "note": "Recent capture activity aggregated to coarse cells; not territory ownership.",
-            "cells": activity_cells,
-        },
-    }
-
-
 def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
     if os.getenv("UPLOAD_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
         state.set(upload_state="disabled", auth_ok=None)
@@ -604,40 +346,20 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
         return
     upload_url = os.getenv("WDGWARS_API_URL", DEFAULT_UPLOAD_URL)
     me_url = os.getenv("WDGWARS_ME_URL", DEFAULT_ME_URL)
-    territory_url = os.getenv("WDGWARS_TERRITORY_URL", DEFAULT_TERRITORY_URL)
     interval = env_int("UPLOAD_INTERVAL_SECONDS", 60, 15, 3600)
     batch_size = env_int("UPLOAD_BATCH_SIZE", 100, 1, 500)
-    profile_interval = env_int("WDGWARS_PROFILE_INTERVAL_SECONDS", 300, 60, 3600)
     backoff = interval
-    profile_refreshed_at = 0.0
+    authenticated_at = 0.0
 
     while not stop.is_set():
         try:
             api_key = load_api_key()
-            if time.time() - profile_refreshed_at > profile_interval:
+            if time.time() - authenticated_at > 3600:
                 profile = request_json(me_url, api_key, timeout=15)
                 if not profile.get("ok"):
                     raise RuntimeError(f"WDG Wars authentication failed: {profile.get('error', 'unknown error')}")
-                profile_refreshed_at = time.time()
-                public_profile = public_wdg_profile(profile)
-                previous_wdg = state.snapshot().get("wdg") or {}
-                try:
-                    territory = request_json(territory_url, api_key, timeout=20)
-                    if not territory.get("ok"):
-                        raise RuntimeError("WDG territory grid rejected")
-                    public_profile["territory"] = public_wdg_territory(
-                        territory, public_profile["team"]["id"]
-                    )
-                except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, json.JSONDecodeError) as exc:
-                    if isinstance(previous_wdg.get("territory"), dict):
-                        public_profile["territory"] = previous_wdg["territory"]
-                    print(f"WDG territory grid unavailable: {exc}", file=sys.stderr, flush=True)
-                state.set(
-                    auth_ok=True,
-                    upload_state="ready",
-                    wdg=public_profile,
-                    last_error=None,
-                )
+                authenticated_at = time.time()
+                state.set(auth_ok=True, upload_state="ready", last_error=None)
 
             aircraft = store.pending(batch_size)
             if not aircraft:
@@ -687,83 +409,17 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
             backoff = min(backoff * 2, 900)
 
 
-def dashboard_payload(store: Store, state: RuntimeState) -> dict:
-    return {
-        "generated_at": utc_now(),
-        "runtime": state.snapshot(),
-        "counts": store.counts(),
-        "uploads": store.upload_stats(),
-        "aircraft": store.recent(200),
-    }
-
-
-def web_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
-    port = env_int("WEB_PORT", 8092, 1024, 65535)
-    page = Path(__file__).with_name("dashboard.html").read_bytes()
-
-    class Handler(BaseHTTPRequestHandler):
-        def send_body(self, status: int, content_type: str, body: bytes) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header(
-                "Content-Security-Policy",
-                "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; "
-                "style-src 'self' 'unsafe-inline' https://unpkg.com; "
-                "img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
-                "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-            )
-            self.end_headers()
-            self.wfile.write(body)
-
-        def do_GET(self) -> None:
-            path = self.path.split("?", 1)[0]
-            if path == "/":
-                self.send_body(200, "text/html; charset=utf-8", page)
-            elif path == "/api/dashboard":
-                body = json.dumps(
-                    dashboard_payload(store, state), separators=(",", ":")
-                ).encode("utf-8")
-                self.send_body(200, "application/json; charset=utf-8", body)
-            elif path == "/healthz":
-                runtime = state.snapshot()
-                healthy = bool(
-                    runtime.get("dump1090_running") and runtime.get("sbs_connected")
-                )
-                body = json.dumps({"ok": healthy}, separators=(",", ":")).encode("utf-8")
-                self.send_body(200 if healthy else 503, "application/json", body)
-            else:
-                self.send_body(404, "application/json", b'{"error":"not found"}')
-
-        def log_message(self, _format: str, *_args) -> None:
-            return
-
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    server.daemon_threads = True
-    server.timeout = 1
-    state.set(web_running=True, web_port=port)
-    print(f"LAN dashboard listening on container port {port}", flush=True)
-    try:
-        while not stop.is_set():
-            server.handle_request()
-    finally:
-        server.server_close()
-        state.set(web_running=False)
-
-
 def matching_sdrs(vendor: str, product: str, serial_number: str) -> list[Path]:
     matches = []
     for device in Path("/sys/bus/usb/devices").glob("*"):
         try:
-            if (
-                (device / "idVendor").read_text().strip().lower() == vendor.lower()
-                and (device / "idProduct").read_text().strip().lower() == product.lower()
-                and (device / "serial").read_text().strip() == serial_number
-            ):
-                matches.append(device)
+            if (device / "idVendor").read_text().strip().lower() != vendor.lower():
+                continue
+            if (device / "idProduct").read_text().strip().lower() != product.lower():
+                continue
+            if serial_number and (device / "serial").read_text().strip() != serial_number:
+                continue
+            matches.append(device)
         except OSError:
             continue
     return matches
@@ -772,18 +428,20 @@ def matching_sdrs(vendor: str, product: str, serial_number: str) -> list[Path]:
 def start_dump1090() -> subprocess.Popen:
     vendor = os.getenv("SDR_VENDOR_ID", "0bda")
     product = os.getenv("SDR_PRODUCT_ID", "2838")
-    serial_number = os.getenv("SDR_SERIAL", "00000001")
+    serial_number = os.getenv("SDR_SERIAL", "").strip()
     matches = matching_sdrs(vendor, product, serial_number)
     if len(matches) != 1:
+        identity = f"{vendor}:{product}" + (f" serial {serial_number}" if serial_number else "")
         raise RuntimeError(
-            f"expected exactly one SDR {vendor}:{product} serial {serial_number}; found {len(matches)}"
+            f"expected exactly one SDR {identity}; found {len(matches)}"
         )
 
     port = env_int("SBS_PORT", 30003, 1024, 65535)
+    selector = serial_number or "0"
     command = [
         os.getenv("DUMP1090_BIN", "/usr/local/bin/dump1090"),
         "--device-type", "rtlsdr",
-        "--device", serial_number,
+        "--device", selector,
         "--net-bind-address", "127.0.0.1",
         "--net-sbs-port", str(port),
         "--quiet",
@@ -797,7 +455,7 @@ def start_dump1090() -> subprocess.Popen:
         int(ppm)
         command.extend(["--ppm", ppm])
     print(
-        f"Starting dump1090 for SDR {vendor}:{product} serial {serial_number} on 127.0.0.1:{port}",
+        f"Starting dump1090 for SDR {vendor}:{product} device {selector} on 127.0.0.1:{port}",
         flush=True,
     )
     return subprocess.Popen(command)
@@ -871,7 +529,6 @@ def run() -> int:
     threads = [
         threading.Thread(target=sbs_loop, args=(store, state, stop), daemon=True),
         threading.Thread(target=upload_loop, args=(store, state, stop), daemon=True),
-        threading.Thread(target=web_loop, args=(store, state, stop), daemon=True),
     ]
     for thread in threads:
         thread.start()
@@ -905,18 +562,9 @@ def healthcheck(data_dir: Path) -> int:
     try:
         status = json.loads((data_dir / "status.json").read_text(encoding="utf-8"))
         fresh = time.time() - int(status["written_at_epoch"]) < 90
-        healthy = (
-            fresh
-            and status.get("dump1090_running")
-            and status.get("sbs_connected")
-            and status.get("web_running")
-        )
-        if healthy:
-            port = env_int("WEB_PORT", 8092, 1024, 65535)
-            with urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as response:
-                healthy = response.status == 200
+        healthy = fresh and status.get("dump1090_running") and status.get("sbs_connected")
         return 0 if healthy else 1
-    except (OSError, ValueError, KeyError, json.JSONDecodeError, URLError):
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
         return 1
 
 
