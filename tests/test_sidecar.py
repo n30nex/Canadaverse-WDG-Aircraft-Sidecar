@@ -3,15 +3,11 @@ import hashlib
 import hmac
 import importlib.util
 import json
-import os
 from pathlib import Path
-import socket
 import tempfile
-import threading
 import time
 import unittest
 from unittest.mock import patch
-from urllib.request import urlopen
 
 
 MODULE_PATH = Path(__file__).parents[1] / "src" / "sidecar.py"
@@ -41,7 +37,10 @@ class SidecarTests(unittest.TestCase):
         )
         self.assertEqual(aircraft.icao, "C0FFEE")
         self.assertEqual(aircraft.callsign, "ACA123")
-        self.assertEqual((aircraft.alt_ft, aircraft.speed_kt, aircraft.heading), (35000, 450, 271))
+        self.assertEqual(
+            (aircraft.alt_ft, aircraft.speed_kt, aircraft.heading),
+            (35000, 450, 271),
+        )
         self.assertIsNone(tracker.feed(sbs(3, icao="BAD", lat="91", lon="0"), now=103))
 
     def test_hmac_envelope_matches_watchdogsgo_contract(self):
@@ -61,100 +60,6 @@ class SidecarTests(unittest.TestCase):
         self.assertEqual(envelope["sig"], expected)
         self.assertEqual(json.loads(base64.b64decode(envelope["data"])), data)
 
-    def test_public_wdg_profile_is_aggregated_and_redacted(self):
-        profile = {
-            "ok": True,
-            "username": "private-user",
-            "user_id": 42,
-            "gang": "Royal City Recon",
-            "gang_id": 581,
-            "gang_role": "member",
-            "total": 16515,
-            "wifi": 6740,
-            "ble": 9739,
-            "mesh": 22,
-            "aircraft": 14,
-            "recent_7d": 16480,
-            "recent_today": 3,
-            "reinforce_total": 1002,
-            "reinforce": {"2": 573, "3": 429},
-            "credits": {"balance": 42, "lifetime_earned": 91, "bounties_completed": 3},
-            "your_rank": {"today": 5, "week": 12, "all_time": None, "top_n": 50},
-            "new_ap_limit": {"used": 13514, "remaining": 486486, "cap": 500000, "window": "24h_rolling"},
-            "badges": ["plane_spotter", "gang_member"],
-            "devices": [
-                {"device_name": "private-phone", "networks": 100},
-                {
-                    "device_name": "adsb",
-                    "aircraft": 14,
-                    "uploads": 13,
-                    "last_upload": "2026-08-15 06:18:57+00",
-                },
-            ],
-            "recent_captures": [
-                {
-                    "lat": 43.42123456,
-                    "lng": -80.33456789,
-                    "ap_count": 4,
-                    "defender_gang": "Example Team",
-                    "when": "2026-08-15 06:00:00+00",
-                },
-                {
-                    "lat": 43.422,
-                    "lng": -80.333,
-                    "ap_count": 2,
-                    "defender_gang": "Example Team",
-                    "when": "2026-08-15 06:05:00+00",
-                },
-            ],
-        }
-        public = sidecar.public_wdg_profile(profile)
-        encoded = json.dumps(public)
-        self.assertEqual(public["team"]["name"], "Royal City Recon")
-        self.assertEqual(public["stats"]["aircraft"], 14)
-        self.assertEqual(public["scope"], "linked_profile")
-        self.assertEqual(public["reinforce"], {"level_2": 573, "level_3": 429})
-        self.assertEqual(public["credits"]["bounties_completed"], 3)
-        self.assertEqual(public["rank"], {"today": 5, "week": 12, "all_time": None, "top_n": 50})
-        self.assertEqual(public["new_ap_limit"]["remaining"], 486486)
-        self.assertEqual(public["adsb"]["uploads"], 13)
-        self.assertEqual(public["adsb"]["last_upload"], "2026-08-15T06:18:57+00:00")
-        self.assertEqual(public["activity_grid"]["cells"][0]["events"], 2)
-        self.assertEqual(public["activity_grid"]["cells"][0]["aps"], 6)
-        self.assertNotIn("private-user", encoded)
-        self.assertNotIn("private-phone", encoded)
-        self.assertNotIn("43.42123456", encoded)
-        self.assertNotIn("user_id", encoded)
-
-    def test_public_wdg_territory_matches_game_grid_and_redacts_users(self):
-        territory = {
-            "ok": True,
-            "grid_lat": 0.02,
-            "grid_lng": 0.02,
-            "grid_through": "2026-08-15T15:21:17Z",
-            "gangs": {
-                "581": {"name": "Royal City Recon", "color": "#01c7fc", "members": 2},
-                "292": {"name": "Other Team", "color": "not-a-color", "members": 4},
-            },
-            "cells": [
-                {"lat": 43.4, "lng": -80.38, "gang_id": 581, "count": 2414, "users": 2, "relay": 1, "towers": 8, "user_id": 991},
-                {"lat": 43.42, "lng": -80.36, "gang_id": 292, "count": 63, "users": 1, "relay": 0, "towers": 0, "user_id": 992},
-                {"lat": 999, "lng": 999, "gang_id": 581, "count": 1},
-            ],
-        }
-        public = sidecar.public_wdg_territory(territory, 581)
-        encoded = json.dumps(public)
-        self.assertEqual((public["grid_lat"], public["grid_lon"]), (0.02, 0.02))
-        self.assertEqual(public["grid_through"], "2026-08-15T15:21:17+00:00")
-        self.assertEqual(public["team_cells"], 1)
-        self.assertEqual(len(public["cells"]), 2)
-        self.assertEqual(public["cells"][0]["aps"], 2414)
-        self.assertTrue(public["cells"][0]["ours"])
-        self.assertEqual(public["teams"]["581"]["color"], "#01c7fc")
-        self.assertEqual(public["teams"]["292"]["color"], "#6b7280")
-        self.assertNotIn("user_id", encoded)
-        self.assertNotIn("991", encoded)
-
     def test_store_deduplicates_by_icao_and_persists_upload_state(self):
         with tempfile.TemporaryDirectory() as directory:
             store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
@@ -170,79 +75,62 @@ class SidecarTests(unittest.TestCase):
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0]["first_seen"], "100")
             self.assertEqual(pending[0]["callsign"], "ACA123")
-            store.mark_uploaded(
-                ["C0FFEE"],
-                {"aircraft_imported": 1, "aircraft_already_seen": 0},
-            )
+            store.mark_uploaded(["C0FFEE"], {"aircraft_imported": 1})
             self.assertEqual(store.pending(10), [])
-            self.assertEqual(store.counts(), {"total": 1, "pending": 0, "uploaded": 1})
             self.assertEqual(
-                store.upload_stats(),
-                {"batches": 1, "sent": 1, "imported": 1, "already_seen": 0},
+                store.counts(), {"total": 1, "pending": 0, "uploaded": 1}
             )
-            recent = store.recent()
-            self.assertEqual((recent[0]["icao"], recent[0]["callsign"]), ("C0FFEE", "ACA123"))
-            state = sidecar.RuntimeState(Path(directory) / "status.json")
-            state.set(auth_ok=True, messages=42)
-            with patch.object(store, "recent", wraps=store.recent) as recent:
-                dashboard = sidecar.dashboard_payload(store, state)
-                recent.assert_called_once_with(200)
-            self.assertEqual(dashboard["counts"]["uploaded"], 1)
-            self.assertEqual(dashboard["uploads"]["imported"], 1)
-            self.assertEqual(dashboard["runtime"]["messages"], 42)
 
-    def test_dashboard_serves_health_page_and_json(self):
-        with tempfile.TemporaryDirectory() as directory, socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
-            probe.close()
-            store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
-            state = sidecar.RuntimeState(Path(directory) / "status.json")
-            state.set(dump1090_running=True, sbs_connected=True, auth_ok=True)
-            stop = threading.Event()
-            with patch.dict(os.environ, {"WEB_PORT": str(port)}):
-                thread = threading.Thread(
-                    target=sidecar.web_loop, args=(store, state, stop), daemon=True
-                )
-                thread.start()
-                for _ in range(20):
-                    try:
-                        with urlopen(f"http://127.0.0.1:{port}/healthz") as response:
-                            self.assertEqual(json.load(response), {"ok": True})
-                        break
-                    except OSError:
-                        time.sleep(0.05)
-                else:
-                    self.fail("dashboard did not start")
-                with urlopen(f"http://127.0.0.1:{port}/api/dashboard") as response:
-                    self.assertEqual(json.load(response)["counts"]["total"], 0)
-                with urlopen(f"http://127.0.0.1:{port}/") as response:
-                    self.assertIn(b"Canadaverse WDG Airspace", response.read())
-                stop.set()
-                thread.join(timeout=2)
-                self.assertFalse(thread.is_alive())
+    def test_receiver_matching_uses_serial_only_when_configured(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, serial in (("one", "ABC123"), ("two", "XYZ789")):
+                device = root / name
+                device.mkdir()
+                (device / "idVendor").write_text("0bda")
+                (device / "idProduct").write_text("2838")
+                (device / "serial").write_text(serial)
+            with patch.object(sidecar, "Path", lambda _path: root):
+                self.assertEqual(len(sidecar.matching_sdrs("0bda", "2838", "")), 2)
+                selected = sidecar.matching_sdrs("0bda", "2838", "XYZ789")
+                self.assertEqual([item.name for item in selected], ["two"])
+
+    def test_healthcheck_is_headless(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            (data_dir / "status.json").write_text(json.dumps({
+                "written_at_epoch": int(time.time()),
+                "dump1090_running": True,
+                "sbs_connected": True,
+                "web_running": False,
+            }))
+            self.assertEqual(sidecar.healthcheck(data_dir), 0)
 
 
 class PackagingTests(unittest.TestCase):
-    def test_dashboard_refresh_is_bounded_and_non_overlapping(self):
-        dashboard = (MODULE_PATH.parent / "dashboard.html").read_text()
-        self.assertIn("const MAP_AIRCRAFT_LIMIT = 120", dashboard)
-        self.assertIn("const CLUSTER_CELL_PX = 72", dashboard)
-        self.assertIn('class="aircraft-cluster', dashboard)
-        self.assertIn('id="meter-rate"', dashboard)
-        self.assertIn('data-layer="territory"', dashboard)
-        self.assertIn("L.rectangle", dashboard)
-        self.assertIn("territorySignature", dashboard)
-        self.assertIn("previousMessageSample", dashboard)
-        self.assertIn("renderProfileProgress", dashboard)
-        self.assertIn("if (refreshInFlight) return", dashboard)
-        self.assertIn('document.addEventListener("visibilitychange"', dashboard)
-        self.assertNotIn("setInterval(refresh", dashboard)
-
-    def test_setup_grants_secret_to_only_the_container_group(self):
+    def test_public_package_has_no_web_ui_or_inbound_port(self):
         root = MODULE_PATH.parents[1]
         compose = (root / "compose.yaml").read_text()
+        dockerfile = (root / "Dockerfile").read_text()
+        source = MODULE_PATH.read_text()
+        readme = (root / "README.md").read_text()
+        self.assertNotIn("\n    ports:", compose)
+        self.assertNotIn("WEB_PORT", compose)
+        self.assertNotIn("dashboard.html", dockerfile)
+        self.assertNotIn("ThreadingHTTPServer", source)
+        self.assertNotIn("web_loop", source)
+        self.assertNotIn("Royal City Recon", readme)
+        self.assertFalse((root / "src" / "dashboard.html").exists())
+
+    def test_setup_auto_detects_serial_and_protects_secret(self):
+        root = MODULE_PATH.parents[1]
         setup = (root / "setup.sh").read_text()
+        compose = (root / "compose.yaml").read_text()
+        self.assertIn('EXPECTED_SERIAL="${SDR_SERIAL:-}"', setup)
+        self.assertIn('candidate_serial="$(udevadm info', setup)
+        self.assertNotIn("00000001", setup)
+        self.assertIn('if [[ "$auth_ok" != "True" ]]', setup)
+        self.assertIn("WDG API authentication has not succeeded", setup)
         self.assertIn('${WDGWARS_GID:?Run ./setup.sh to create the secret group}', compose)
         self.assertIn('secret_group="wdgwars-aircraft"', setup)
         self.assertIn('chgrp "$secret_group" .secrets/wdgwars_api_key', setup)

@@ -1,8 +1,6 @@
 services:
   aircraft-sidecar:
     image: ${IMAGE:-ghcr.io/n30nex/canadaverse-wdg-aircraft-sidecar:latest}
-    build:
-      context: .
     restart: unless-stopped
     init: true
     read_only: true
@@ -19,19 +17,15 @@ services:
       DATA_DIR: /data
       SDR_VENDOR_ID: ${SDR_VENDOR_ID:-0bda}
       SDR_PRODUCT_ID: ${SDR_PRODUCT_ID:-2838}
-      SDR_SERIAL: ${SDR_SERIAL:-00000001}
+      SDR_SERIAL: ${SDR_SERIAL:-}
       DUMP1090_GAIN: ${DUMP1090_GAIN:-}
       DUMP1090_PPM: ${DUMP1090_PPM:-}
       UPLOAD_INTERVAL_SECONDS: ${UPLOAD_INTERVAL_SECONDS:-60}
       UPLOAD_BATCH_SIZE: ${UPLOAD_BATCH_SIZE:-100}
       UPLOAD_ENABLED: ${UPLOAD_ENABLED:-true}
-      WDGWARS_PROFILE_INTERVAL_SECONDS: ${WDGWARS_PROFILE_INTERVAL_SECONDS:-300}
-      WEB_PORT: 8092
       WDGWARS_API_KEY_FILE: /run/secrets/wdgwars_api_key
       WDGWARS_API_URL: https://wdgwars.pl/api/upload/
       WDGWARS_ME_URL: https://wdgwars.pl/api/me
-    ports:
-      - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-8092}:8092"
     secrets:
       - wdgwars_api_key
     volumes:
