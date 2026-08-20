@@ -7,3 +7,4 @@ Dockerfile text eol=lf
 *.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+windows/GPL-2.0.txt text eol=lf

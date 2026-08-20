@@ -13,8 +13,8 @@ $pythonVersion = "3.13.15"
 $pythonName = "python-$pythonVersion-embed-amd64.zip"
 $pythonUri = "https://www.python.org/ftp/python/$pythonVersion/$pythonName"
 $pythonSha256 = "d1f04d990aee1253d8569e8e5104e30fa9f5fa830899f14843448872d936a2cf"
-$gplUri = "https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt"
 $gplSha256 = "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+$gplPath = Join-Path $repo "windows\GPL-2.0.txt"
 $decoderCommit = "252cef736d24e146545aecf7f316c289ef82b3b4"
 $packageName = "WDG-Aircraft-Sidecar-Windows-x64-v$Version"
 $sourceName = "WDG-Dump1090-Corresponding-Source-v$Version"
@@ -39,9 +39,19 @@ foreach ($target in @($packageRoot, $sourceRoot, $packageArchive, $sourceArchive
 $downloadRoot = Join-Path $OutputDirectory "verified-downloads"
 New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
 $pythonArchive = Join-Path $downloadRoot $pythonName
-$gplPath = Join-Path $downloadRoot "GPL-2.0.txt"
-Invoke-WebRequest -Uri $pythonUri -OutFile $pythonArchive
-Invoke-WebRequest -Uri $gplUri -OutFile $gplPath
+
+function Invoke-DownloadWithRetry([string] $Uri, [string] $Destination) {
+    foreach ($attempt in 1..3) {
+        try {
+            Invoke-WebRequest -Uri $Uri -OutFile $Destination
+            return
+        }
+        catch {
+            if ($attempt -eq 3) { throw }
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+}
 
 function Assert-Sha256([string] $Path, [string] $Expected) {
     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
@@ -50,6 +60,7 @@ function Assert-Sha256([string] $Path, [string] $Expected) {
     }
 }
 
+Invoke-DownloadWithRetry $pythonUri $pythonArchive
 Assert-Sha256 $pythonArchive $pythonSha256
 Assert-Sha256 $gplPath $gplSha256
 
