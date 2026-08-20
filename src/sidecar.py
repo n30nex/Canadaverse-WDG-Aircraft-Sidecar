@@ -7,6 +7,7 @@ import argparse
 import base64
 from contextlib import contextmanager
 import csv
+import getpass
 import hashlib
 import hmac
 import json
@@ -27,11 +28,52 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 ICAO_RE = re.compile(r"^[0-9A-F]{6}$")
 API_KEY_RE = re.compile(r"^[0-9A-Fa-f]{64}$")
+
+
+def runtime_data_dir(platform_name: str | None = None) -> Path:
+    configured = os.getenv("DATA_DIR", "").strip()
+    if configured:
+        return Path(configured)
+    platform_name = platform_name or os.name
+    if platform_name == "nt":
+        local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+        base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
+        return base / "Canadaverse" / "WDG-Aircraft-Sidecar"
+    return Path("/data")
+
+
+def api_key_file(platform_name: str | None = None) -> Path:
+    configured = os.getenv("WDGWARS_API_KEY_FILE", "").strip()
+    if configured:
+        return Path(configured)
+    platform_name = platform_name or os.name
+    if platform_name == "nt":
+        return runtime_data_dir(platform_name) / "wdgwars_api_key"
+    return Path("/run/secrets/wdgwars_api_key")
+
+
+def application_root(script_path: Path | None = None) -> Path:
+    return (script_path or Path(__file__)).resolve().parent.parent
+
+
+def windows_dump1090_command(root: Path | None = None) -> list[str]:
+    root = root or application_root()
+    device = os.getenv("SDR_DEVICE", "0").strip() or "0"
+    if len(device) > 128 or any(character in device for character in "\r\n\0"):
+        raise RuntimeError("SDR_DEVICE contains unsupported characters")
+    return [
+        str(root / "decoder" / "dump1090.exe"),
+        "--config",
+        str(root / "decoder" / "wdg-dump1090.cfg"),
+        "--device",
+        device,
+        "--net",
+    ]
 
 
 def utc_now() -> str:
@@ -318,7 +360,7 @@ def sign_payload(api_key: str, data: dict, nonce: str | None = None) -> bytes:
 
 
 def load_api_key() -> str:
-    key_file = Path(os.getenv("WDGWARS_API_KEY_FILE", "/run/secrets/wdgwars_api_key"))
+    key_file = api_key_file()
     try:
         key = key_file.read_text(encoding="utf-8").strip()
     except OSError as exc:
@@ -331,12 +373,46 @@ def load_api_key() -> str:
 def request_json(url: str, api_key: str, body: bytes | None = None, timeout: int = 30) -> dict:
     request = Request(url, data=body, method="POST" if body is not None else "GET")
     request.add_header("Accept", "application/json")
-    request.add_header("User-Agent", f"Canadaverse-WDG-Aircraft/{VERSION} (Docker; Python/{sys.version_info.major}.{sys.version_info.minor})")
+    runtime = "Windows-native" if os.name == "nt" else "Docker"
+    request.add_header(
+        "User-Agent",
+        f"Canadaverse-WDG-Aircraft/{VERSION} ({runtime}; Python/{sys.version_info.major}.{sys.version_info.minor})",
+    )
     request.add_header("X-API-Key", api_key)
     if body is not None:
         request.add_header("Content-Type", "application/json")
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def configure_api_key(platform_name: str | None = None) -> int:
+    platform_name = platform_name or os.name
+    if platform_name != "nt":
+        raise RuntimeError("interactive API-key setup is provided by setup.sh on Linux")
+    key = getpass.getpass("Paste your 64-character WDG Wars API key: ").strip()
+    if not API_KEY_RE.fullmatch(key):
+        raise RuntimeError("WDG Wars API key must be exactly 64 hexadecimal characters")
+    try:
+        profile = request_json(os.getenv("WDGWARS_ME_URL", DEFAULT_ME_URL), key, timeout=15)
+    except HTTPError as exc:
+        raise RuntimeError(f"WDG Wars rejected the API key (HTTP {exc.code})") from exc
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"could not verify the API key with WDG Wars: {exc}") from exc
+    if not profile.get("ok"):
+        raise RuntimeError(
+            f"WDG Wars rejected the API key: {profile.get('error', 'unknown error')}"
+        )
+
+    destination = api_key_file(platform_name)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f"{destination.name}.tmp")
+    try:
+        temporary.write_text(key, encoding="utf-8")
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    print("API key authenticated and saved for this Windows account.")
+    return 0
 
 
 def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
@@ -425,7 +501,36 @@ def matching_sdrs(vendor: str, product: str, serial_number: str) -> list[Path]:
     return matches
 
 
+def start_windows_dump1090() -> subprocess.Popen:
+    root = application_root()
+    command = windows_dump1090_command(root)
+    decoder = Path(command[0])
+    config = Path(command[2])
+    if not decoder.is_file() or not config.is_file():
+        raise RuntimeError("the bundled Windows aircraft decoder is missing")
+    print("Starting the Windows RTL-SDR decoder on local port 30003...", flush=True)
+    process = subprocess.Popen(
+        command,
+        cwd=decoder.parent,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        return process
+    raise RuntimeError(
+        "the RTL-SDR decoder could not start. Close other SDR programs and, if this "
+        "is the first use on Windows, install the WinUSB driver with Zadig for the "
+        "RTL-SDR Bulk-In Interface 0."
+    )
+
+
 def start_dump1090() -> subprocess.Popen:
+    if os.name == "nt":
+        return start_windows_dump1090()
+
     vendor = os.getenv("SDR_VENDOR_ID", "0bda")
     product = os.getenv("SDR_PRODUCT_ID", "2838")
     serial_number = os.getenv("SDR_SERIAL", "").strip()
@@ -513,7 +618,9 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
 
 
 def run() -> int:
-    data_dir = Path(os.getenv("DATA_DIR", "/data"))
+    if os.getenv("UPLOAD_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}:
+        load_api_key()
+    data_dir = runtime_data_dir()
     store = Store(data_dir / "aircraft.sqlite3")
     state = RuntimeState(data_dir / "status.json")
     stop = threading.Event()
@@ -526,6 +633,9 @@ def run() -> int:
 
     process = start_dump1090()
     state.set(dump1090_running=True)
+    if os.name == "nt":
+        print(f"Logging aircraft in {data_dir}", flush=True)
+        print("Leave this window open. Press Ctrl+C to stop.", flush=True)
     threads = [
         threading.Thread(target=sbs_loop, args=(store, state, stop), daemon=True),
         threading.Thread(target=upload_loop, args=(store, state, stop), daemon=True),
@@ -537,11 +647,18 @@ def run() -> int:
     try:
         while not stop.wait(5):
             if process.poll() is not None:
+                decoder_error = f"dump1090 exited with code {process.returncode}"
+                if os.name == "nt":
+                    decoder_error += (
+                        "; close other SDR programs and verify that WinUSB is installed "
+                        "for the RTL-SDR Bulk-In Interface 0"
+                    )
                 state.set(
                     dump1090_running=False,
                     sbs_connected=False,
-                    last_error=f"dump1090 exited with code {process.returncode}",
+                    last_error=decoder_error,
                 )
+                print(f"Decoder error: {decoder_error}", file=sys.stderr, flush=True)
                 exit_code = process.returncode or 1
                 break
             state.flush(store.counts())
@@ -573,15 +690,18 @@ def main() -> int:
     parser.add_argument("--healthcheck", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--export-csv", action="store_true")
+    parser.add_argument("--configure", action="store_true")
     parser.add_argument("--version", action="store_true")
     args = parser.parse_args()
-    data_dir = Path(os.getenv("DATA_DIR", "/data"))
+    data_dir = runtime_data_dir()
 
     if args.version:
         print(VERSION)
         return 0
     if args.healthcheck:
         return healthcheck(data_dir)
+    if args.configure:
+        return configure_api_key()
     if args.status:
         status = json.loads((data_dir / "status.json").read_text(encoding="utf-8"))
         status["aircraft"] = Store(data_dir / "aircraft.sqlite3").counts()
@@ -594,4 +714,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None

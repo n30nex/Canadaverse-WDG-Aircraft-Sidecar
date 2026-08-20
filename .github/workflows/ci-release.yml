@@ -26,6 +26,53 @@ jobs:
           printf '%064d' 0 > .secrets/wdgwars_api_key
           docker compose config --quiet
 
+  windows:
+    name: Windows native package
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: gvanem/Dump1090
+          ref: 252cef736d24e146545aecf7f316c289ef82b3b4
+          path: upstream-dump1090
+      - name: Verify and patch decoder source
+        shell: pwsh
+        run: |
+          $expected = "252cef736d24e146545aecf7f316c289ef82b3b4"
+          $actual = (git -C upstream-dump1090 rev-parse HEAD).Trim()
+          if ($actual -ne $expected) { throw "Unexpected Dump1090 commit: $actual" }
+          $patch = Join-Path $env:GITHUB_WORKSPACE "windows\dump1090-sbs-only.patch"
+          git -C upstream-dump1090 apply --check $patch
+          git -C upstream-dump1090 apply $patch
+      - name: Build decoder
+        shell: pwsh
+        run: |
+          cmake -S upstream-dump1090/src -B windows-build -G "Visual Studio 17 2022" -A x64
+          cmake --build windows-build --config Release --parallel
+      - name: Assemble portable package and corresponding source
+        shell: pwsh
+        run: |
+          .\windows\Build-Windows-Package.ps1 `
+            -DecoderPath .\upstream-dump1090\dump1090.exe `
+            -DecoderLicensePath .\upstream-dump1090\LICENSE `
+            -DecoderSourcePath .\upstream-dump1090 `
+            -OutputDirectory "$env:RUNNER_TEMP\wdg-release"
+      - name: Prove the packaged decoder and local SBS feed
+        shell: pwsh
+        run: |
+          .\windows\Test-Windows-Package.ps1 `
+            -PackageRoot "$env:RUNNER_TEMP\wdg-release\WDG-Aircraft-Sidecar-Windows-x64-v1.1.0" `
+            -InputFile .\upstream-dump1090\testfiles\long_flight.csv
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-native-release
+          path: |
+            ${{ runner.temp }}/wdg-release/*.zip
+            ${{ runner.temp }}/wdg-release/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+
   image:
     runs-on: ubuntu-24.04
     steps:

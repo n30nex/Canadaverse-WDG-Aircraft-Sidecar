@@ -1,0 +1,23 @@
+THIRD-PARTY NOTICES
+===================
+
+CPython 3.13.15
+---------------
+Copyright Python Software Foundation and contributors.
+Distributed under the Python Software Foundation License Version 2.
+The full license is included as runtime\LICENSE.txt.
+Source: https://www.python.org/downloads/release/python-31315/
+
+Dump1090 for Windows
+--------------------
+Based on gvanem/Dump1090 commit 252cef736d24e146545aecf7f316c289ef82b3b4.
+Copyright (c) 2012 Salvatore Sanfilippo.
+Copyright (c) 2021-2024 Gisle Vanem.
+
+The upstream MIT notice is included as decoder\Dump1090-LICENSE.txt. The
+decoder also incorporates RTL-SDR and other GPL-covered code and is conveyed
+under GPL-2.0-or-later. GPL-2.0 is included as decoder\GPL-2.0.txt. Complete
+corresponding decoder source, including the WDG loopback/SBS-only changes and
+build instructions, is attached to the same GitHub release.
+
+Upstream: https://github.com/gvanem/Dump1090

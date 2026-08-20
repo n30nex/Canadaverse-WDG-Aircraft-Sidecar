@@ -1,13 +1,14 @@
 # WDG Aircraft Sidecar
 
-Turn one compatible RTL-SDR into a headless WDG Wars aircraft collector.
+Turn one compatible RTL-SDR into a headless WDG Wars aircraft collector on
+Windows or Linux.
 
-Plug in the receiver, run one setup script, enter your WDG API key, and leave it
-running. There is no web UI and no inbound network port.
+Plug in the receiver, enter your WDG API key, and leave it running. There is no
+web UI and no public network port.
 
 ## What it does
 
-- runs FlightAware `dump1090` and the WDG uploader in one Docker container;
+- runs an ADS-B decoder and the WDG uploader together;
 - records each unique positioned ICAO aircraft in a persistent SQLite database;
 - sends signed `aircraft` batches to WDG Wars;
 - retries safely after network failures;
@@ -18,7 +19,28 @@ running. There is no web UI and no inbound network port.
 It is receive-only. It does not transmit radio or collect Wi-Fi, Bluetooth, or
 MeshCore data.
 
-## Requirements
+## Windows 10/11 quick start
+
+1. Download `WDG-Aircraft-Sidecar-Windows-x64-v1.1.0.zip` from the
+   [v1.1.0 release](https://github.com/n30nex/WDG-Aircraft-Sidecar/releases/tag/v1.1.0).
+2. Extract the entire ZIP and plug in the RTL-SDR.
+3. Double-click `Start-WDG-Aircraft-Sidecar.cmd`.
+4. Enter the 64-character WDG Wars API key when prompted. Input is hidden.
+
+The Windows package is portable: it needs neither Docker nor a separate Python
+installation. If the decoder cannot open a new receiver, install WinUSB for its
+`Bulk-In, Interface 0` with [Zadig](https://zadig.akeo.ie/), reconnect it, and
+start again. The included `README-WINDOWS.txt` gives guarded step-by-step driver
+instructions.
+
+Double-click `Status.cmd` to see received, pending, and WDG-confirmed aircraft
+counts. Data and the key stay under
+`%LOCALAPPDATA%\Canadaverse\WDG-Aircraft-Sidecar` for that Windows account.
+
+The bundled decoder has one listener only: SBS data on `127.0.0.1:30003`. It is
+not reachable from the LAN and does not include the upstream decoder web UI.
+
+## Linux requirements
 
 - ARM64 or AMD64 Linux, including Raspberry Pi OS or Debian;
 - Docker with the Compose plugin;
@@ -30,10 +52,10 @@ MeshCore data.
 The zero-configuration path targets the common USB ID `0bda:2838`, used by
 many Nooelec, RTL-SDR Blog, and generic RTL2832U receivers.
 
-## Install
+## Linux install
 
 ```bash
-git clone --depth 1 https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar.git
+git clone --depth 1 https://github.com/n30nex/WDG-Aircraft-Sidecar.git
 cd Canadaverse-WDG-Aircraft-Sidecar
 ./setup.sh
 ```
@@ -129,6 +151,13 @@ reports previously credited aircraft as `aircraft_already_seen`.
   inspected at commit `96f5e6a659cdff38ca36936979942f15f38ddfab` (MIT).
 - The image pins FlightAware `dump1090` commit
   `0339a57b89cd6e61856cbb13ae342c31ae7be5ac`.
+- The Windows package builds
+  [gvanem/Dump1090](https://github.com/gvanem/Dump1090) commit
+  `252cef736d24e146545aecf7f316c289ef82b3b4` from source. A small published
+  patch removes its RAW/HTTP listeners and binds SBS to loopback. Complete
+  corresponding decoder source is attached to the release.
+- The Windows runtime is the checksum-pinned official CPython 3.13.15
+  embeddable x64 package.
 
 This unofficial community project is not affiliated with or endorsed by WDG
 Wars, WatchDogsGo, FlightAware, or any RTL-SDR manufacturer.
