@@ -28,6 +28,53 @@ def sbs(message_type, icao="C0FFEE", callsign="", alt="", speed="", heading="", 
 
 
 class SidecarTests(unittest.TestCase):
+    def test_windows_paths_and_decoder_command_are_portable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            local_app_data = Path(directory) / "Local"
+            package_root = Path(directory) / "Package"
+            with patch.dict(
+                sidecar.os.environ,
+                {"LOCALAPPDATA": str(local_app_data)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    sidecar.runtime_data_dir("nt"),
+                    local_app_data / "Canadaverse" / "WDG-Aircraft-Sidecar",
+                )
+                self.assertEqual(
+                    sidecar.api_key_file("nt"),
+                    local_app_data
+                    / "Canadaverse"
+                    / "WDG-Aircraft-Sidecar"
+                    / "wdgwars_api_key",
+                )
+                self.assertEqual(
+                    sidecar.windows_dump1090_command(package_root),
+                    [
+                        str(package_root / "decoder" / "dump1090.exe"),
+                        "--config",
+                        str(package_root / "decoder" / "wdg-dump1090.cfg"),
+                        "--device",
+                        "0",
+                        "--net",
+                    ],
+                )
+
+    def test_windows_configuration_authenticates_before_saving_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            secret = Path(directory) / "key"
+            with (
+                patch.dict(
+                    sidecar.os.environ,
+                    {"WDGWARS_API_KEY_FILE": str(secret)},
+                    clear=True,
+                ),
+                patch.object(sidecar.getpass, "getpass", return_value="a" * 64),
+                patch.object(sidecar, "request_json", return_value={"ok": True}),
+            ):
+                self.assertEqual(sidecar.configure_api_key("nt"), 0)
+            self.assertEqual(secret.read_text(), "a" * 64)
+
     def test_tracker_merges_sbs_fields_and_rejects_missing_position(self):
         tracker = sidecar.Tracker()
         self.assertIsNone(tracker.feed(sbs(1, callsign="ACA123"), now=100))
@@ -135,6 +182,36 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('secret_group="wdgwars-aircraft"', setup)
         self.assertIn('chgrp "$secret_group" .secrets/wdgwars_api_key', setup)
         self.assertIn('chmod 0640 .secrets/wdgwars_api_key', setup)
+
+    def test_windows_package_is_native_headless_and_reproducible(self):
+        root = MODULE_PATH.parents[1]
+        windows = root / "windows"
+        required = [
+            "Start-WDG-Aircraft-Sidecar.cmd",
+            "Configure-WDG-API-Key.cmd",
+            "Status.cmd",
+            "README-WINDOWS.txt",
+            "THIRD-PARTY-NOTICES.txt",
+            "Build-Windows-Package.ps1",
+            "Test-Windows-Package.ps1",
+            "dump1090-sbs-only.patch",
+            "wdg-dump1090.cfg",
+        ]
+        for name in required:
+            self.assertTrue((windows / name).is_file(), name)
+
+        decoder_patch = (windows / "dump1090-sbs-only.patch").read_text()
+        config = (windows / "wdg-dump1090.cfg").read_text()
+        workflow = (root / ".github" / "workflows" / "ci-release.yml").read_text()
+        start_script = (windows / "Start-WDG-Aircraft-Sidecar.cmd").read_text()
+        self.assertIn("WDG_SBS_ONLY", decoder_patch)
+        self.assertIn("127.0.0.1", decoder_patch)
+        self.assertIn("/MT", decoder_patch)
+        self.assertIn("aircrafts = NUL", config)
+        self.assertIn("web-page = NUL", config)
+        self.assertIn("windows-2022", workflow)
+        self.assertIn("252cef736d24e146545aecf7f316c289ef82b3b4", workflow)
+        self.assertNotIn("WDGWARS_API_KEY=", start_script)
 
 
 if __name__ == "__main__":

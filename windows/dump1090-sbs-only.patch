@@ -1,0 +1,84 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ab4abb8..c33687e 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -66,7 +66,7 @@ include_directories (. ./externals ./externals/PDC-Mod)
+ # Preprocessor define; since we have no custom CMake rule to create
+ # a 'cflags_$(CC).h' and 'ldflags_$(CC).h' yet.
+ #
+-add_definitions (-DDOING_MSBUILD)
++add_definitions (-DDOING_MSBUILD -DWDG_SBS_ONLY)
+ 
+ #
+ # Remove '-DNDEBUG' from a Release-build
+@@ -114,7 +114,7 @@ target_link_libraries(dump1090 PRIVATE
+ if (MSVC)
+   target_compile_options (dump1090 PRIVATE
+                           $<$<CONFIG:Debug>:/MDd /W4 /Zi /Od>
+-                          $<$<CONFIG:Release>:/MD /W4 /Zi>)
++                          $<$<CONFIG:Release>:/MT /W4 /Zi>)
+ 
+   #
+   # Console subsystem
+diff --git a/src/net_io.c b/src/net_io.c
+index 4daa13f..6229a54 100644
+--- a/src/net_io.c
++++ b/src/net_io.c
+@@ -243,11 +243,11 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
+                               service == MODES_NET_SERVICE_DNS);
+   bool           use_udp = (modeS_net_services [service].is_udp && !modeS_net_services [service].is_ip6);
+   char          *url;
+-  const char    *listen_fmt = "%s://0.0.0.0:%u";
++  const char    *listen_fmt = "%s://127.0.0.1:%u";
+ 
+   if (is_ipv6)
+   {
+-    listen_fmt = "%s://[::]:%u";
++    listen_fmt = "%s://[::1]:%u";
+     modeS_net_services [service].is_ip6 = true;
+ 
+ #if !defined(USE_ASAN)
+@@ -3403,12 +3403,19 @@ bool net_init (void)
+    * Ignore this with `raw_ignore` and/or `sbs_ignore`.
+    */
+ 
++#if !defined(WDG_SBS_ONLY)
+   bool  raw_ignore = net_handler_port (MODES_NET_SERVICE_RAW_IN) == net_handler_port (MODES_NET_SERVICE_RAW_OUT);
++#endif
+   bool  sbs_ignore = net_handler_port (MODES_NET_SERVICE_SBS_IN) == net_handler_port (MODES_NET_SERVICE_SBS_OUT);
+   DWORD wsa_err;
+ 
++#if defined(WDG_SBS_ONLY)
++  DEBUG (DEBUG_NET, "sbs_ignore: %d\n", sbs_ignore);
++#else
+   DEBUG (DEBUG_NET, "raw_ignore: %d, sbs_ignore: %d\n", raw_ignore, sbs_ignore);
++#endif
+ 
++#if !defined(WDG_SBS_ONLY)
+   if (!Modes.raw_in && !connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false, false))
+   {
+     net_handler_error (MODES_NET_SERVICE_RAW_IN, &wsa_err);
+@@ -3424,6 +3431,7 @@ bool net_init (void)
+     if (!raw_ignore && wsa_err != WSAEADDRINUSE)
+        return (false);
+   }
++#endif
+ 
+   if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true, false))
+   {
+@@ -3433,6 +3441,7 @@ bool net_init (void)
+        return (false);
+   }
+ 
++#if !defined(WDG_SBS_ONLY)
+   if (!connection_setup_listen(MODES_NET_SERVICE_HTTP4, &Modes.http4_out, true, false))
+      return (false);
+ 
+@@ -3450,6 +3459,7 @@ bool net_init (void)
+     aircraft_fix_flightaware();
+     LOG_FILEONLY ("Running with a FlightAware web-page\n");
+   }
++#endif
+   return (true);
+ }
+ 
