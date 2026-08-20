@@ -194,6 +194,7 @@ class PackagingTests(unittest.TestCase):
             "THIRD-PARTY-NOTICES.txt",
             "Build-Windows-Package.ps1",
             "Test-Windows-Package.ps1",
+            "GPL-2.0.txt",
             "dump1090-sbs-only.patch",
             "wdg-dump1090.cfg",
         ]
