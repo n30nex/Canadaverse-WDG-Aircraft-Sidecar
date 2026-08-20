@@ -56,4 +56,4 @@ Command Prompt in this folder and run:
   set SDR_DEVICE=1
   Start-WDG-Aircraft-Sidecar.cmd
 
-Support: https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar/issues
+Support: https://github.com/n30nex/WDG-Aircraft-Sidecar/issues

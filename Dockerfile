@@ -17,7 +17,7 @@ FROM python:3.13-slim-trixie
 ARG VERSION=1.1.0
 LABEL org.opencontainers.image.title="Canadaverse WDG Aircraft Sidecar" \
       org.opencontainers.image.description="Passive ADS-B logger and WDG Wars uploader" \
-      org.opencontainers.image.source="https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar" \
+      org.opencontainers.image.source="https://github.com/n30nex/WDG-Aircraft-Sidecar" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}"
 

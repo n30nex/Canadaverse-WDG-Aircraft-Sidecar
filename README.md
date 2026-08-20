@@ -22,7 +22,7 @@ MeshCore data.
 ## Windows 10/11 quick start
 
 1. Download `WDG-Aircraft-Sidecar-Windows-x64-v1.1.0.zip` from the
-   [v1.1.0 release](https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar/releases/tag/v1.1.0).
+   [v1.1.0 release](https://github.com/n30nex/WDG-Aircraft-Sidecar/releases/tag/v1.1.0).
 2. Extract the entire ZIP and plug in the RTL-SDR.
 3. Double-click `Start-WDG-Aircraft-Sidecar.cmd`.
 4. Enter the 64-character WDG Wars API key when prompted. Input is hidden.
@@ -55,7 +55,7 @@ many Nooelec, RTL-SDR Blog, and generic RTL2832U receivers.
 ## Linux install
 
 ```bash
-git clone --depth 1 https://github.com/n30nex/Canadaverse-WDG-Aircraft-Sidecar.git
+git clone --depth 1 https://github.com/n30nex/WDG-Aircraft-Sidecar.git
 cd Canadaverse-WDG-Aircraft-Sidecar
 ./setup.sh
 ```
