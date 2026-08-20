@@ -183,13 +183,17 @@ class SidecarTests(unittest.TestCase):
             recent = store.recent()
             self.assertEqual((recent[0]["icao"], recent[0]["callsign"]), ("C0FFEE", "ACA123"))
             state = sidecar.RuntimeState(Path(directory) / "status.json")
-            state.set(auth_ok=True, messages=42)
+            state.set(auth_ok=True, messages=42, wdg={"team": {"id": 581}})
             with patch.object(store, "recent", wraps=store.recent) as recent:
                 dashboard = sidecar.dashboard_payload(store, state)
-                recent.assert_called_once_with(200)
+                recent.assert_called_once_with(120)
             self.assertEqual(dashboard["counts"]["uploaded"], 1)
             self.assertEqual(dashboard["uploads"]["imported"], 1)
             self.assertEqual(dashboard["runtime"]["messages"], 42)
+            self.assertTrue(dashboard["context_included"])
+            compact = sidecar.dashboard_payload(store, state, include_context=False)
+            self.assertFalse(compact["context_included"])
+            self.assertNotIn("wdg", compact["runtime"])
 
     def test_dashboard_serves_health_page_and_json(self):
         with tempfile.TemporaryDirectory() as directory, socket.socket() as probe:
@@ -216,6 +220,11 @@ class SidecarTests(unittest.TestCase):
                     self.fail("dashboard did not start")
                 with urlopen(f"http://127.0.0.1:{port}/api/dashboard") as response:
                     self.assertEqual(json.load(response)["counts"]["total"], 0)
+                    self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+                with urlopen(f"http://127.0.0.1:{port}/api/dashboard?compact=1") as response:
+                    payload = json.load(response)
+                    self.assertFalse(payload["context_included"])
+                    self.assertNotIn("wdg", payload["runtime"])
                 with urlopen(f"http://127.0.0.1:{port}/") as response:
                     self.assertIn(b"Canadaverse WDG Airspace", response.read())
                 stop.set()
@@ -235,6 +244,10 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("territorySignature", dashboard)
         self.assertIn("previousMessageSample", dashboard)
         self.assertIn("renderProfileProgress", dashboard)
+        self.assertIn("/api/dashboard?compact=1", dashboard)
+        self.assertIn("new AbortController()", dashboard)
+        self.assertIn('id="aircraft-search"', dashboard)
+        self.assertIn("runtime.last_message_at", dashboard)
         self.assertIn("if (refreshInFlight) return", dashboard)
         self.assertIn('document.addEventListener("visibilitychange"', dashboard)
         self.assertNotIn("setInterval(refresh", dashboard)

@@ -25,10 +25,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 DEFAULT_TERRITORY_URL = (
@@ -297,8 +298,8 @@ class Store:
         with self.session() as db:
             rows = db.execute(
                 """
-                SELECT icao, callsign, first_seen, last_seen, lat, lon,
-                       alt_ft, speed_kt, heading, upload_status, uploaded_at
+                SELECT icao, callsign, last_seen, lat, lon,
+                       alt_ft, speed_kt, heading, upload_status
                 FROM aircraft
                 ORDER BY last_seen DESC, icao
                 LIMIT ?
@@ -332,6 +333,7 @@ class RuntimeState:
             "sbs_connected": False,
             "web_running": False,
             "messages": 0,
+            "last_message_at": None,
             "auth_ok": None,
             "upload_state": "starting",
             "last_aircraft": None,
@@ -687,13 +689,19 @@ def upload_loop(store: Store, state: RuntimeState, stop: threading.Event) -> Non
             backoff = min(backoff * 2, 900)
 
 
-def dashboard_payload(store: Store, state: RuntimeState) -> dict:
+def dashboard_payload(
+    store: Store, state: RuntimeState, include_context: bool = True
+) -> dict:
+    runtime = state.snapshot()
+    if not include_context:
+        runtime.pop("wdg", None)
     return {
         "generated_at": utc_now(),
-        "runtime": state.snapshot(),
+        "context_included": include_context,
+        "runtime": runtime,
         "counts": store.counts(),
         "uploads": store.upload_stats(),
-        "aircraft": store.recent(200),
+        "aircraft": store.recent(120),
     }
 
 
@@ -708,7 +716,11 @@ def web_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+            )
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; "
@@ -720,12 +732,15 @@ def web_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
             self.wfile.write(body)
 
         def do_GET(self) -> None:
-            path = self.path.split("?", 1)[0]
+            target = urlsplit(self.path)
+            path = target.path
             if path == "/":
                 self.send_body(200, "text/html; charset=utf-8", page)
             elif path == "/api/dashboard":
+                compact = parse_qs(target.query).get("compact") == ["1"]
                 body = json.dumps(
-                    dashboard_payload(store, state), separators=(",", ":")
+                    dashboard_payload(store, state, include_context=not compact),
+                    separators=(",", ":"),
                 ).encode("utf-8")
                 self.send_body(200, "application/json; charset=utf-8", body)
             elif path == "/healthz":
@@ -809,6 +824,7 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
     tracker = Tracker()
     persisted_at: dict[str, int] = {}
     persisted_callsign: dict[str, str] = {}
+    message_timestamp_at = 0.0
 
     while not stop.is_set():
         try:
@@ -827,6 +843,10 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
                     while "\n" in buffer:
                         line, buffer = buffer.split("\n", 1)
                         state.increment("messages")
+                        monotonic_now = time.monotonic()
+                        if monotonic_now - message_timestamp_at >= 1:
+                            state.set(last_message_at=utc_now())
+                            message_timestamp_at = monotonic_now
                         aircraft = tracker.feed(line.strip())
                         if not aircraft:
                             continue

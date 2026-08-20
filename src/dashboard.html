@@ -40,6 +40,10 @@
     button, a { font: inherit; }
     button { color: inherit; }
     a { color: inherit; text-decoration: none; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
     .muted { color: var(--muted); }
     .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
     .eyebrow {
@@ -101,7 +105,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      min-width: 164px;
+      min-width: 210px;
       padding: 7px 10px;
       border: 1px solid var(--line-bright);
       border-radius: 10px;
@@ -109,8 +113,11 @@
       font-size: .76rem;
       font-weight: 700;
     }
+    .live-copy { min-width: 0; display: grid; gap: 1px; }
+    .live-detail { color: var(--muted); font-size: .57rem; font-weight: 600; white-space: nowrap; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 4px rgba(140, 161, 155, .08); }
     .dot.ok { background: var(--green); box-shadow: 0 0 14px rgba(141, 255, 99, .72); animation: live-pulse 1.8s ease-in-out infinite; }
+    .dot.warn { background: var(--gold); box-shadow: 0 0 14px rgba(255, 200, 87, .58); }
     .dot.bad { background: var(--red); box-shadow: 0 0 14px rgba(255, 97, 116, .65); }
     .refresh-meta { color: var(--muted); font-size: .68rem; text-align: right; line-height: 1.35; }
 
@@ -292,12 +299,27 @@
     .legend-swatch.territory { background: linear-gradient(135deg, #01c7fc 0 50%, #a86cff 50%); }
 
     .aircraft-panel { min-height: 0; display: flex; flex-direction: column; }
+    .aircraft-toolbar { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+    .aircraft-filter {
+      width: 132px;
+      min-width: 74px;
+      padding: 5px 7px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      color: var(--text);
+      background: #030a0e;
+      font-size: .62rem;
+    }
+    select.aircraft-filter { width: 88px; cursor: pointer; }
+    select.aircraft-filter option { color: var(--text); background: var(--panel); }
     .table-scroll { min-height: 0; overflow: auto; }
     table { width: 100%; border-collapse: collapse; font-size: .7rem; }
     th { position: sticky; top: 0; z-index: 2; padding: 6px 8px; color: var(--muted); background: #091219; border-bottom: 1px solid var(--line); font-size: .58rem; letter-spacing: .07em; text-align: left; text-transform: uppercase; white-space: nowrap; }
     td { padding: 6px 8px; border-bottom: 1px solid rgba(27, 43, 53, .6); white-space: nowrap; }
     tbody tr:hover { background: rgba(141, 255, 99, .035); }
     .flight { color: var(--text); font-weight: 760; }
+    .flight-link { padding: 0; border: 0; color: var(--cyan); background: transparent; cursor: pointer; font-weight: 780; }
+    .flight-link:hover { color: var(--green); text-decoration: underline; text-underline-offset: 2px; }
     .status-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 99px; color: var(--green); background: rgba(141, 255, 99, .08); font-size: .6rem; font-weight: 760; text-transform: uppercase; }
     .status-chip.pending { color: var(--gold); background: rgba(255, 200, 87, .09); }
     .empty { padding: 34px 14px; color: var(--muted); text-align: center; }
@@ -341,12 +363,12 @@
     .instrument-value .unit { color: var(--muted); font-size: .48rem; font-weight: 700; }
     .vu { position: relative; height: 7px; margin-top: 5px; overflow: hidden; border-radius: 2px; background: repeating-linear-gradient(90deg, #15232c 0 6px, transparent 6px 8px); }
     .vu span { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, var(--meter-color, var(--green)) 0 6px, transparent 6px 8px); filter: drop-shadow(0 0 3px var(--meter-color, var(--green))); transition: width .3s ease; }
-    .instrument.tick .vu { animation: meter-tick .34s ease-out; }
+    .instrument.hot .vu span { animation: signal-breathe 1.35s ease-in-out infinite; }
     .scope-note { margin-top: 7px; color: var(--muted); font-size: .58rem; line-height: 1.35; }
     .rank-value { font-size: .72rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     @keyframes live-pulse { 50% { opacity: .62; box-shadow: 0 0 5px rgba(141, 255, 99, .5); } }
-    @keyframes meter-tick { 50% { filter: brightness(1.7); } }
-    @media (prefers-reduced-motion: reduce) { .dot.ok, .instrument.tick .vu { animation: none; } }
+    @keyframes signal-breathe { 50% { filter: drop-shadow(0 0 6px var(--meter-color, var(--green))) brightness(1.32); } }
+    @media (prefers-reduced-motion: reduce) { .dot.ok, .instrument.hot .vu span { animation: none; } }
 
     @media (max-width: 1240px) {
       .workspace { height: auto; min-height: 0; grid-template-columns: 230px minmax(480px, 1fr); }
@@ -366,6 +388,8 @@
       .center-column { order: -1; height: auto; grid-template-rows: 62vh 300px; }
       .map-panel, #map { min-height: 0; }
       .map-readout { display: none; }
+      .aircraft-filter { width: 98px; }
+      select.aircraft-filter { width: 76px; }
       th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6) { display: none; }
     }
   </style>
@@ -393,7 +417,7 @@
     <div class="live-cluster">
       <div class="live-pill" id="overall" aria-live="polite">
         <span class="dot" id="overall-dot"></span>
-        <span id="overall-text">Connecting to Pi 5</span>
+        <span class="live-copy"><span id="overall-text">Connecting to Pi 5</span><span class="live-detail" id="overall-detail">RF waiting · WDG waiting</span></span>
       </div>
       <div class="refresh-meta">Public read-only<br><span id="updated">Waiting for data</span></div>
     </div>
@@ -477,7 +501,7 @@
       </section>
 
       <section class="panel aircraft-panel" id="airspace">
-        <div class="panel-header"><span class="panel-title">Aircraft collections</span><span class="panel-tag" id="aircraft-summary">Waiting</span></div>
+        <div class="panel-header"><span class="panel-title">Aircraft collections</span><span class="aircraft-toolbar"><input class="aircraft-filter" id="aircraft-search" type="search" inputmode="search" maxlength="16" placeholder="Flight or ICAO" aria-label="Filter aircraft by flight or ICAO"><select class="aircraft-filter" id="aircraft-window" aria-label="Aircraft time window"><option value="300">Live 5m</option><option value="3600">Last 1h</option><option value="21600" selected>Last 6h</option><option value="all">Latest 120</option></select><span class="panel-tag" id="aircraft-summary">Waiting</span></span></div>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Last seen</th><th>Flight / callsign</th><th>ICAO</th><th>Altitude</th><th>Speed</th><th>Heading</th><th>WDG status</th></tr></thead>
@@ -492,8 +516,8 @@
         <div class="panel-header"><span class="panel-title">Airspace status</span><span class="panel-tag" id="system-status">Checking</span></div>
         <div class="section-body health-list">
           <div class="health-row"><span class="dot" id="decoder-dot"></span><span><span class="health-name">1090 MHz receiver</span><span class="health-detail">dump1090 + RTL‑SDR</span></span><span class="health-value" id="decoder">Waiting</span></div>
-          <div class="health-row"><span class="dot" id="sbs-dot"></span><span><span class="health-name">Aircraft stream</span><span class="health-detail">SBS/BaseStation feed</span></span><span class="health-value" id="sbs">Waiting</span></div>
-          <div class="health-row"><span class="dot" id="wdg-dot"></span><span><span class="health-name">WDG Wars API</span><span class="health-detail">Authenticated uploader</span></span><span class="health-value" id="api">Waiting</span></div>
+          <div class="health-row"><span class="dot" id="sbs-dot"></span><span><span class="health-name">Aircraft stream</span><span class="health-detail" id="sbs-detail">SBS/BaseStation feed</span></span><span class="health-value" id="sbs">Waiting</span></div>
+          <div class="health-row"><span class="dot" id="wdg-dot"></span><span><span class="health-name">WDG Wars API</span><span class="health-detail" id="api-detail">Authenticated uploader</span></span><span class="health-value" id="api">Waiting</span></div>
           <div class="health-row"><span class="dot" id="queue-dot"></span><span><span class="health-name">Upload queue</span><span class="health-detail" id="upload-state">Starting</span></span><span class="health-value" id="pending">—</span></div>
         </div>
       </section>
@@ -554,7 +578,7 @@
           <strong>Territory grid:</strong> bounded regional <span class="mono">/api/member-territories</span> snapshot with WDG user IDs removed · data through <span id="territory-refreshed">waiting</span>.<br>
           <strong>Profile progress:</strong> reinforcement tiers, rolling AP allowance, credits, bounties, and member rank when WDG reports it.<br>
           <strong>Aircraft:</strong> this Pi 5 RTL‑SDR, persistent local log, and upload acknowledgements.<br>
-          <strong>Refresh:</strong> page 10s while visible · WDG profile <span id="wdg-refreshed">waiting</span>.<br>
+          <strong>Refresh:</strong> live data every 5s while visible · full WDG context every 5m · profile <span id="wdg-refreshed">waiting</span>.<br>
           <strong>Build:</strong> <span class="mono" id="version">—</span>.
           <div class="error-text" id="error" hidden></div>
         </div>
@@ -567,8 +591,9 @@
     "use strict";
     const element = function (id) { return document.getElementById(id); };
     const number = function (value) { return Number(value || 0).toLocaleString(); };
-    const REFRESH_MS = 10000;
-    const MAP_WINDOW_SECONDS = 6 * 60 * 60;
+    const REFRESH_MS = 5000;
+    const CONTEXT_REFRESH_MS = 5 * 60 * 1000;
+    const REQUEST_TIMEOUT_MS = 8000;
     const MAP_AIRCRAFT_LIMIT = 120;
     const CLUSTER_CELL_PX = 72;
     const validPoint = function (item) {
@@ -594,20 +619,33 @@
       return value ? relativeTime(new Date(Number(value) * 1000).toISOString()) : "never";
     };
     const setDot = function (id, state) {
-      element(id).className = "dot" + (state === true ? " ok" : state === false ? " bad" : "");
+      element(id).className = "dot" + (state === true ? " ok" : state === false ? " bad" : state === "warn" ? " warn" : "");
     };
     const setMeter = function (instrumentId, meterId, percent) {
       const instrument = element(instrumentId);
-      element(meterId).style.width = Math.max(0, Math.min(100, Number(percent) || 0)) + "%";
-      instrument.classList.remove("tick");
-      void instrument.offsetWidth;
-      instrument.classList.add("tick");
+      const bounded = Math.max(0, Math.min(100, Number(percent) || 0));
+      element(meterId).style.width = bounded + "%";
+      instrument.classList.toggle("hot", bounded > 1);
+    };
+    const ageSeconds = function (value, now) {
+      const timestamp = Date.parse(value || "");
+      return Number.isFinite(timestamp) ? Math.max(0, ((now || Date.now()) - timestamp) / 1000) : null;
+    };
+    const shortAge = function (value) { return relativeTime(value).replace(" ago", ""); };
+    const aircraftMatches = function (aircraft) {
+      if (!aircraftQuery) return true;
+      return String(aircraft.callsign || "").toUpperCase().includes(aircraftQuery) ||
+        String(aircraft.icao || "").toUpperCase().includes(aircraftQuery);
     };
 
     const layerState = { territory: true, activity: false, aircraft: true, vectors: true };
     let latestData = null;
+    let aircraftQuery = "";
+    let aircraftWindowSeconds = 6 * 60 * 60;
+    let contextRefreshAt = 0;
     let initialFit = false;
     let map = null;
+    let canvasRenderer = null;
     let aircraftLayer = null;
     let vectorLayer = null;
     let territoryLayer = null;
@@ -618,6 +656,7 @@
     let tableSignature = "";
     let wdgSignature = "";
     let refreshTimer = null;
+    let tickerTimer = null;
     let refreshInFlight = false;
     let previousMessageSample = null;
     const aircraftMarkers = new Map();
@@ -626,6 +665,7 @@
     function setupMap() {
       if (!window.L) throw new Error("Map library did not load");
       map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([43.54, -80.25], 9);
+      canvasRenderer = L.canvas({ padding: .35 });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
       territoryLayer = L.layerGroup().addTo(map);
       activityLayer = L.layerGroup().addTo(map);
@@ -693,7 +733,7 @@
           const team = territoryTeams[String(cell.team_id)] || {};
           const color = /^#[0-9a-f]{6}$/i.test(team.color || "") ? team.color : "#6b7280";
           const ours = cell.ours === true;
-          const normal = { color: color, weight: ours ? 1.35 : .7, opacity: ours ? .95 : .72, fillColor: color, fillOpacity: ours ? .42 : .22 };
+          const normal = { renderer: canvasRenderer, color: color, weight: ours ? 1.35 : .7, opacity: ours ? .95 : .72, fillColor: color, fillOpacity: ours ? .42 : .22 };
           const rectangle = L.rectangle([
             [Number(cell.lat), Number(cell.lon)],
             [Number(cell.lat) + gridLat, Number(cell.lon) + gridLon]
@@ -728,6 +768,7 @@
           if (!validPoint(cell)) return;
           const intensity = Math.min(1, .22 + Number(cell.aps || 0) / 28);
           const polygon = L.polygon(hexagon(Number(cell.lat), Number(cell.lon), .0062), {
+            renderer: canvasRenderer,
             color: "#a86cff", weight: 1.25, opacity: .76,
             fillColor: Number(cell.aps || 0) >= 10 ? "#a86cff" : "#6250c7",
             fillOpacity: .12 + intensity * .26
@@ -742,7 +783,7 @@
           );
           polygon.addTo(activityLayer);
           L.circleMarker([Number(cell.lat), Number(cell.lon)], {
-            radius: 3 + Math.min(5, Number(cell.events || 0)), color: "#d5b8ff", weight: 1, fillColor: "#a86cff", fillOpacity: .85
+            renderer: canvasRenderer, radius: 3 + Math.min(5, Number(cell.events || 0)), color: "#d5b8ff", weight: 1, fillColor: "#a86cff", fillOpacity: .85
           }).addTo(activityLayer);
         });
       }
@@ -753,7 +794,8 @@
       const now = Date.now() / 1000;
       const allAircraft = Array.isArray(data.aircraft) ? data.aircraft : [];
       const visibleAircraft = layerState.aircraft ? allAircraft.filter(function (aircraft) {
-        return validPoint(aircraft) && Math.max(0, now - Number(aircraft.last_seen || 0)) <= MAP_WINDOW_SECONDS;
+        return validPoint(aircraft) && aircraftMatches(aircraft) &&
+          (aircraftWindowSeconds === Infinity || Math.max(0, now - Number(aircraft.last_seen || 0)) <= aircraftWindowSeconds);
       }).slice(0, MAP_AIRCRAFT_LIMIT) : [];
       const zoom = map.getZoom();
       const groups = new Map();
@@ -811,7 +853,7 @@
             const vectorSignature = JSON.stringify(points);
             const existingVector = headingVectors.get(aircraftId);
             if (!existingVector) {
-              const vector = L.polyline(points, { color: "#ffc857", weight: 1.2, opacity: .58, dashArray: "4 7" }).addTo(vectorLayer);
+              const vector = L.polyline(points, { renderer: canvasRenderer, color: "#ffc857", weight: 1.2, opacity: .58, dashArray: "4 7" }).addTo(vectorLayer);
               headingVectors.set(aircraftId, { vector: vector, signature: vectorSignature });
             } else if (existingVector.signature !== vectorSignature) {
               existingVector.vector.setLatLngs(points);
@@ -821,7 +863,9 @@
         }
 
         markerIds.add(markerId);
-        const signature = JSON.stringify([lat, lon, activeCount, members]);
+        const signature = JSON.stringify([lat, lon, activeCount, members.map(function (item) {
+          return [item.icao, item.callsign, item.last_seen, item.lat, item.lon, item.alt_ft, item.speed_kt, item.heading, item.upload_status];
+        })]);
         const existing = aircraftMarkers.get(markerId);
         if (!existing) {
           const marker = L.marker([lat, lon], { icon: icon }).bindPopup(popup).addTo(aircraftLayer);
@@ -841,7 +885,8 @@
           headingVectors.delete(id);
         }
       });
-      element("map-status").textContent = visibleAircraft.length + " aircraft · " + groups.size + " groups · " + territoryCells.length + " WDG cells · " + number(territory.team_cells) + " ours";
+      const liveAircraft = visibleAircraft.filter(function (aircraft) { return Math.max(0, now - Number(aircraft.last_seen || 0)) < 300; }).length;
+      element("map-status").textContent = liveAircraft + " live · " + visibleAircraft.length + " shown · " + groups.size + " groups · " + territoryCells.length + " WDG cells · " + number(territory.team_cells) + " ours";
       if (!initialFit && lastBounds.length) {
         initialFit = true;
         if (ownTerritoryBounds.length) {
@@ -854,23 +899,28 @@
 
     function renderAircraft(data) {
       const body = element("aircraft-body");
-      const rows = data.aircraft.slice(0, 100);
-      const active = rows.filter(function (aircraft) {
-        return Math.max(0, Date.now() / 1000 - Number(aircraft.last_seen || 0)) < 300;
+      const now = Date.now() / 1000;
+      const allRows = Array.isArray(data.aircraft) ? data.aircraft : [];
+      const rows = allRows.filter(function (aircraft) {
+        return aircraftMatches(aircraft) &&
+          (aircraftWindowSeconds === Infinity || Math.max(0, now - Number(aircraft.last_seen || 0)) <= aircraftWindowSeconds);
+      }).slice(0, 100);
+      const active = allRows.filter(function (aircraft) {
+        return aircraftMatches(aircraft) && Math.max(0, now - Number(aircraft.last_seen || 0)) < 300;
       }).length;
-      element("aircraft-summary").textContent = active + " active · " + data.counts.total + " logged";
-      const nextSignature = Math.floor(Date.now() / 60000) + "|" + JSON.stringify(rows);
+      element("aircraft-summary").textContent = active + " live · " + rows.length + " shown · " + number(data.counts.total) + " logged";
+      const nextSignature = Math.floor(Date.now() / 60000) + "|" + aircraftQuery + "|" + aircraftWindowSeconds + "|" + JSON.stringify(rows);
       if (nextSignature === tableSignature) return;
       tableSignature = nextSignature;
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="7" class="empty">No positioned aircraft logged yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="empty">No aircraft match this filter.</td></tr>';
         return;
       }
       body.innerHTML = rows.map(function (aircraft) {
         const pending = aircraft.upload_status !== "uploaded";
         return "<tr>" +
           "<td>" + escapeHtml(epochRelative(aircraft.last_seen)) + "</td>" +
-          '<td class="flight">' + escapeHtml(aircraft.callsign || "Unknown") + "</td>" +
+          '<td class="flight"><button class="flight-link" type="button" data-lat="' + Number(aircraft.lat) + '" data-lon="' + Number(aircraft.lon) + '" title="Locate on map">' + escapeHtml(aircraft.callsign || "Unknown") + "</button></td>" +
           '<td class="mono">' + escapeHtml(aircraft.icao) + "</td>" +
           "<td>" + number(aircraft.alt_ft) + " ft</td>" +
           "<td>" + number(aircraft.speed_kt) + " kt</td>" +
@@ -974,6 +1024,22 @@
       setMeter("instrument-fresh", "meter-fresh", profileAge == null ? 0 : 100 - profileAge / 600 * 100);
     }
 
+    function updateLiveLabels() {
+      if (!latestData) return;
+      const runtime = latestData.runtime || {};
+      const wdg = runtime.wdg || {};
+      const adsb = wdg.adsb || {};
+      const lastUpload = runtime.last_upload || {};
+      const lastUploadAt = lastUpload.at || adsb.last_upload;
+      const frameText = runtime.last_message_at ? shortAge(runtime.last_message_at) : "waiting";
+      const uploadText = lastUploadAt ? shortAge(lastUploadAt) : "waiting";
+      element("overall-detail").textContent = "RF " + frameText + " · WDG TX " + uploadText;
+      element("updated").textContent = "Data " + shortAge(latestData.generated_at) + " old";
+      element("sbs-detail").textContent = "SBS · " + number(runtime.messages) + " frames · last " + frameText;
+      element("api-detail").textContent = "Profile " + (wdg.refreshed_at ? shortAge(wdg.refreshed_at) : "waiting") + " · TX " + uploadText;
+      element("upload-state").textContent = (runtime.upload_state || "Unknown") + " · last " + uploadText;
+    }
+
     function renderStatus(data) {
       const runtime = data.runtime;
       const counts = data.counts;
@@ -988,19 +1054,20 @@
       const apiReady = runtime.auth_ok === true;
       const queueReady = Number(counts.pending || 0) === 0;
       const ready = receiverReady && streamReady && apiReady;
+      const frameAge = ageSeconds(runtime.last_message_at);
+      const rfQuiet = streamReady && (frameAge == null || frameAge > 60);
 
-      setDot("overall-dot", ready);
+      setDot("overall-dot", ready ? (rfQuiet ? "warn" : true) : false);
       setDot("decoder-dot", receiverReady);
-      setDot("sbs-dot", streamReady);
+      setDot("sbs-dot", streamReady ? (rfQuiet ? "warn" : true) : false);
       setDot("wdg-dot", apiReady ? true : runtime.auth_ok === false ? false : null);
       setDot("queue-dot", queueReady);
-      element("overall-text").textContent = ready ? "Pi 5 + WDG online" : "Service attention needed";
+      element("overall-text").textContent = ready ? (rfQuiet ? "Online · RF quiet" : "Pi 5 + WDG online") : "Service attention needed";
       element("decoder").textContent = receiverReady ? "Running" : "Stopped";
-      element("sbs").textContent = streamReady ? number(runtime.messages) + " messages" : "Disconnected";
+      element("sbs").textContent = streamReady ? (rfQuiet ? "RF quiet" : "Live") : "Disconnected";
       element("api").textContent = apiReady ? "Authenticated" : runtime.auth_ok === false ? "Rejected" : "Waiting";
       element("pending").textContent = number(counts.pending) + " pending";
-      element("upload-state").textContent = runtime.upload_state || "Unknown";
-      element("system-status").textContent = ready ? "All systems live" : "Check status";
+      element("system-status").textContent = ready ? (rfQuiet ? "Online · no recent RF" : "All systems live") : "Check status";
 
       element("wdg-total").textContent = stats.total == null ? "—" : number(stats.total);
       element("wifi-total").textContent = stats.wifi == null ? "—" : number(stats.wifi);
@@ -1028,7 +1095,7 @@
       element("wdg-refreshed").textContent = wdg.refreshed_at ? relativeTime(wdg.refreshed_at) : "waiting";
       element("territory-refreshed").textContent = territory.grid_through ? relativeTime(territory.grid_through) : "waiting";
       element("version").textContent = runtime.version || "unknown";
-      element("updated").textContent = "Updated " + new Date(data.generated_at).toLocaleTimeString();
+      updateLiveLabels();
       const error = element("error");
       error.hidden = !runtime.last_error;
       error.textContent = runtime.last_error || "";
@@ -1047,13 +1114,29 @@
       refreshTimer = document.hidden ? null : window.setTimeout(refresh, delay == null ? REFRESH_MS : delay);
     }
 
+    function scheduleTicker() {
+      window.clearTimeout(tickerTimer);
+      if (!document.hidden) updateLiveLabels();
+      tickerTimer = window.setTimeout(scheduleTicker, 1000);
+    }
+
     async function refresh() {
       if (refreshInFlight) return;
       refreshInFlight = true;
+      const includeContext = !latestData || Date.now() >= contextRefreshAt;
+      const controller = new AbortController();
+      const requestTimeout = window.setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS);
       try {
-        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        const response = await fetch(includeContext ? "/api/dashboard" : "/api/dashboard?compact=1", {
+          cache: "no-store", signal: controller.signal
+        });
         if (!response.ok) throw new Error("Dashboard API returned HTTP " + response.status);
-        latestData = await response.json();
+        const nextData = await response.json();
+        if (!nextData.context_included && latestData && latestData.runtime && latestData.runtime.wdg) {
+          nextData.runtime.wdg = latestData.runtime.wdg;
+        }
+        if (nextData.context_included) contextRefreshAt = Date.now() + CONTEXT_REFRESH_MS;
+        latestData = nextData;
         renderStatus(latestData);
         renderMap(latestData);
         renderAircraft(latestData);
@@ -1062,8 +1145,9 @@
         element("overall-text").textContent = "Dashboard disconnected";
         element("system-status").textContent = "Offline";
         element("error").hidden = false;
-        element("error").textContent = error.message;
+        element("error").textContent = error.name === "AbortError" ? "Dashboard request timed out" : error.message;
       } finally {
+        window.clearTimeout(requestTimeout);
         refreshInFlight = false;
         scheduleRefresh();
       }
@@ -1077,6 +1161,20 @@
         if (latestData) renderMap(latestData);
       });
     });
+    element("aircraft-search").addEventListener("input", function (event) {
+      aircraftQuery = String(event.target.value || "").trim().toUpperCase();
+      if (latestData) { renderMap(latestData); renderAircraft(latestData); }
+    });
+    element("aircraft-window").addEventListener("change", function (event) {
+      aircraftWindowSeconds = event.target.value === "all" ? Infinity : Number(event.target.value);
+      if (latestData) { renderMap(latestData); renderAircraft(latestData); }
+    });
+    element("aircraft-body").addEventListener("click", function (event) {
+      const button = event.target.closest(".flight-link");
+      if (!button || !map) return;
+      map.setView([Number(button.dataset.lat), Number(button.dataset.lon)], Math.max(12, map.getZoom()), { animate: true });
+      element("map-view").scrollIntoView({ behavior: "smooth", block: "center" });
+    });
     element("fit-map").addEventListener("click", fitMap);
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) {
@@ -1088,6 +1186,7 @@
     });
     try {
       setupMap();
+      scheduleTicker();
       refresh();
     } catch (error) {
       setDot("overall-dot", false);
