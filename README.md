@@ -1,4 +1,4 @@
-# Canadaverse WDG Aircraft Sidecar
+# WDG Aircraft Sidecar
 
 Turn one compatible RTL-SDR into a headless WDG Wars aircraft collector.
 
