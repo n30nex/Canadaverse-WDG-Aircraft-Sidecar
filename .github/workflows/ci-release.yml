@@ -100,3 +100,14 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ github.ref_name }}
+
+  required-service:
+    if: always()
+    needs: [test, windows, image]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require complete service build
+        run: |
+          test "${{ needs.test.result }}" = "success"
+          test "${{ needs.windows.result }}" = "success"
+          test "${{ needs.image.result }}" = "success"
