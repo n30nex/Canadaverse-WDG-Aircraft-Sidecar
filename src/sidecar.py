@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.5"
+VERSION = "0.3.6"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 DEFAULT_TERRITORY_URL = (
@@ -130,6 +130,8 @@ class Tracker:
 class Store:
     def __init__(self, path: Path) -> None:
         self.path = path
+        # ponytail: one lock is enough at ADS-B volume; split it only if profiling shows contention.
+        self.lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.session() as db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -164,18 +166,20 @@ class Store:
             )
 
     def connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=10)
+        db = sqlite3.connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
+        db.execute("PRAGMA busy_timeout=30000")
         return db
 
     @contextmanager
     def session(self):
-        db = self.connect()
-        try:
-            yield db
-            db.commit()
-        finally:
-            db.close()
+        with self.lock:
+            db = self.connect()
+            try:
+                yield db
+                db.commit()
+            finally:
+                db.close()
 
     def observe(self, aircraft: Aircraft) -> None:
         if not aircraft.has_position:
@@ -324,16 +328,20 @@ class Store:
 
 class RuntimeState:
     def __init__(self, path: Path) -> None:
+        started_at_epoch = int(time.time())
         self.path = path
         self.lock = threading.Lock()
         self.data = {
             "version": VERSION,
             "started_at": utc_now(),
+            "started_at_epoch": started_at_epoch,
             "dump1090_running": False,
             "sbs_connected": False,
             "web_running": False,
             "messages": 0,
             "last_message_at": None,
+            "last_message_epoch": None,
+            "sbs_stale_seconds": env_int("SBS_STALE_SECONDS", 300, 30, 86400),
             "auth_ok": None,
             "upload_state": "starting",
             "last_aircraft": None,
@@ -363,6 +371,24 @@ class RuntimeState:
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
         temporary.replace(self.path)
+
+
+def sbs_stream_fresh(runtime: dict, now: float | None = None) -> bool:
+    last_message = runtime.get("last_message_epoch")
+    baseline = last_message if last_message is not None else runtime.get("started_at_epoch")
+    if baseline is None:
+        return False
+    stale_seconds = int(runtime.get("sbs_stale_seconds", 300))
+    return (time.time() if now is None else now) - int(baseline) < stale_seconds
+
+
+def runtime_healthy(runtime: dict, now: float | None = None) -> bool:
+    return bool(
+        runtime.get("dump1090_running")
+        and runtime.get("sbs_connected")
+        and runtime.get("web_running")
+        and sbs_stream_fresh(runtime, now)
+    )
 
 
 def sign_payload(api_key: str, data: dict, nonce: str | None = None) -> bytes:
@@ -745,9 +771,7 @@ def web_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
                 self.send_body(200, "application/json; charset=utf-8", body)
             elif path == "/healthz":
                 runtime = state.snapshot()
-                healthy = bool(
-                    runtime.get("dump1090_running") and runtime.get("sbs_connected")
-                )
+                healthy = runtime_healthy(runtime)
                 body = json.dumps({"ok": healthy}, separators=(",", ":")).encode("utf-8")
                 self.send_body(200 if healthy else 503, "application/json", body)
             else:
@@ -845,7 +869,10 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
                         state.increment("messages")
                         monotonic_now = time.monotonic()
                         if monotonic_now - message_timestamp_at >= 1:
-                            state.set(last_message_at=utc_now())
+                            state.set(
+                                last_message_at=utc_now(),
+                                last_message_epoch=int(time.time()),
+                            )
                             message_timestamp_at = monotonic_now
                         aircraft = tracker.feed(line.strip())
                         if not aircraft:
@@ -889,9 +916,9 @@ def run() -> int:
     process = start_dump1090()
     state.set(dump1090_running=True)
     threads = [
-        threading.Thread(target=sbs_loop, args=(store, state, stop), daemon=True),
-        threading.Thread(target=upload_loop, args=(store, state, stop), daemon=True),
-        threading.Thread(target=web_loop, args=(store, state, stop), daemon=True),
+        threading.Thread(name="sbs", target=sbs_loop, args=(store, state, stop), daemon=True),
+        threading.Thread(name="upload", target=upload_loop, args=(store, state, stop), daemon=True),
+        threading.Thread(name="web", target=web_loop, args=(store, state, stop), daemon=True),
     ]
     for thread in threads:
         thread.start()
@@ -906,6 +933,18 @@ def run() -> int:
                     last_error=f"dump1090 exited with code {process.returncode}",
                 )
                 exit_code = process.returncode or 1
+                break
+            dead_thread = next((thread for thread in threads if not thread.is_alive()), None)
+            if dead_thread is not None:
+                state.set(last_error=f"{dead_thread.name} worker exited")
+                print(f"{dead_thread.name} worker exited; restarting", file=sys.stderr, flush=True)
+                exit_code = 1
+                break
+            runtime = state.snapshot()
+            if not sbs_stream_fresh(runtime):
+                state.set(sbs_connected=False, last_error="SBS stream stopped advancing")
+                print("SBS stream stopped advancing; restarting", file=sys.stderr, flush=True)
+                exit_code = 1
                 break
             state.flush(store.counts())
     finally:
@@ -927,9 +966,7 @@ def healthcheck(data_dir: Path) -> int:
         fresh = time.time() - int(status["written_at_epoch"]) < 90
         healthy = (
             fresh
-            and status.get("dump1090_running")
-            and status.get("sbs_connected")
-            and status.get("web_running")
+            and runtime_healthy(status)
         )
         if healthy:
             port = env_int("WEB_PORT", 8092, 1024, 65535)

@@ -195,6 +195,22 @@ class SidecarTests(unittest.TestCase):
             self.assertFalse(compact["context_included"])
             self.assertNotIn("wdg", compact["runtime"])
 
+    def test_runtime_health_requires_fresh_sbs_messages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = sidecar.RuntimeState(Path(directory) / "status.json")
+            started = state.snapshot()["started_at_epoch"]
+            state.set(dump1090_running=True, sbs_connected=True, web_running=True)
+            self.assertTrue(sidecar.runtime_healthy(state.snapshot(), now=started + 299))
+            self.assertFalse(sidecar.runtime_healthy(state.snapshot(), now=started + 300))
+            state.set(last_message_epoch=started + 300)
+            self.assertTrue(sidecar.runtime_healthy(state.snapshot(), now=started + 301))
+
+    def test_store_sets_sqlite_busy_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
+            with store.session() as db:
+                self.assertEqual(db.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
+
     def test_dashboard_serves_health_page_and_json(self):
         with tempfile.TemporaryDirectory() as directory, socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
