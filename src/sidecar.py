@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.6"
+VERSION = "0.3.7"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 DEFAULT_TERRITORY_URL = (
@@ -866,6 +866,9 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
                     buffer += chunk.decode("ascii", errors="ignore")
                     while "\n" in buffer:
                         line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line.startswith("MSG,"):
+                            continue
                         state.increment("messages")
                         monotonic_now = time.monotonic()
                         if monotonic_now - message_timestamp_at >= 1:
@@ -874,7 +877,7 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
                                 last_message_epoch=int(time.time()),
                             )
                             message_timestamp_at = monotonic_now
-                        aircraft = tracker.feed(line.strip())
+                        aircraft = tracker.feed(line)
                         if not aircraft:
                             continue
                         now = int(time.time())

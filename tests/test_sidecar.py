@@ -211,6 +211,40 @@ class SidecarTests(unittest.TestCase):
             with store.session() as db:
                 self.assertEqual(db.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
 
+    def test_sbs_loop_ignores_non_message_keepalives(self):
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen()
+            port = server.getsockname()[1]
+            store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
+            state = sidecar.RuntimeState(Path(directory) / "status.json")
+            stop = threading.Event()
+
+            def send_lines():
+                connection, _ = server.accept()
+                with connection:
+                    payload = ("\r\nkeepalive\r\n" + sbs(1) + "\r\n").encode()
+                    connection.sendall(payload)
+                    stop.wait(1)
+
+            sender = threading.Thread(target=send_lines, daemon=True)
+            sender.start()
+            with patch.dict(os.environ, {"SBS_PORT": str(port)}):
+                worker = threading.Thread(
+                    target=sidecar.sbs_loop, args=(store, state, stop), daemon=True
+                )
+                worker.start()
+                for _ in range(20):
+                    if state.snapshot()["messages"] == 1:
+                        break
+                    time.sleep(0.05)
+                stop.set()
+                worker.join(timeout=2)
+            sender.join(timeout=2)
+            runtime = state.snapshot()
+            self.assertEqual(runtime["messages"], 1)
+            self.assertIsNotNone(runtime["last_message_at"])
+
     def test_dashboard_serves_health_page_and_json(self):
         with tempfile.TemporaryDirectory() as directory, socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
