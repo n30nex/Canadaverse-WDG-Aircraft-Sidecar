@@ -10,6 +10,8 @@ and this container handles 1090 MHz aircraft.
 
 - Runs the current FlightAware `dump1090` decoder inside one Docker container.
 - Reads SBS/BaseStation aircraft messages on loopback only; no ports are exposed.
+- Tracks SBS transport heartbeat separately from real aircraft messages so quiet
+  airspace does not trigger unnecessary decoder restarts.
 - Logs each unique positioned ICAO aircraft in persistent SQLite storage.
 - Uploads batches using WDG Wars' `aircraft` schema and HMAC-SHA256 envelope.
 - Records confirmed `aircraft_imported` and `aircraft_already_seen` results.
