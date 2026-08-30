@@ -195,7 +195,7 @@ class SidecarTests(unittest.TestCase):
             self.assertFalse(compact["context_included"])
             self.assertNotIn("wdg", compact["runtime"])
 
-    def test_runtime_health_requires_fresh_sbs_messages(self):
+    def test_runtime_health_requires_fresh_sbs_transport(self):
         with tempfile.TemporaryDirectory() as directory:
             state = sidecar.RuntimeState(Path(directory) / "status.json")
             started = state.snapshot()["started_at_epoch"]
@@ -203,6 +203,8 @@ class SidecarTests(unittest.TestCase):
             self.assertTrue(sidecar.runtime_healthy(state.snapshot(), now=started + 299))
             self.assertFalse(sidecar.runtime_healthy(state.snapshot(), now=started + 300))
             state.set(last_message_epoch=started + 300)
+            self.assertFalse(sidecar.runtime_healthy(state.snapshot(), now=started + 301))
+            state.set(last_sbs_activity_epoch=started + 300)
             self.assertTrue(sidecar.runtime_healthy(state.snapshot(), now=started + 301))
 
     def test_store_sets_sqlite_busy_timeout(self):
@@ -243,7 +245,43 @@ class SidecarTests(unittest.TestCase):
             sender.join(timeout=2)
             runtime = state.snapshot()
             self.assertEqual(runtime["messages"], 1)
+            self.assertIsNotNone(runtime["last_sbs_activity_at"])
             self.assertIsNotNone(runtime["last_message_at"])
+
+    def test_sbs_keepalive_keeps_transport_fresh_without_counting_aircraft(self):
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen()
+            port = server.getsockname()[1]
+            store = sidecar.Store(Path(directory) / "aircraft.sqlite3")
+            state = sidecar.RuntimeState(Path(directory) / "status.json")
+            stop = threading.Event()
+
+            def send_keepalive():
+                connection, _ = server.accept()
+                with connection:
+                    connection.sendall(b"\r\nkeepalive\r\n")
+                    stop.wait(1)
+
+            sender = threading.Thread(target=send_keepalive, daemon=True)
+            sender.start()
+            with patch.dict(os.environ, {"SBS_PORT": str(port)}):
+                worker = threading.Thread(
+                    target=sidecar.sbs_loop, args=(store, state, stop), daemon=True
+                )
+                worker.start()
+                for _ in range(20):
+                    if state.snapshot()["last_sbs_activity_at"]:
+                        break
+                    time.sleep(0.05)
+                stop.set()
+                worker.join(timeout=2)
+            sender.join(timeout=2)
+            runtime = state.snapshot()
+            self.assertEqual(runtime["messages"], 0)
+            self.assertIsNone(runtime["last_message_at"])
+            self.assertIsNotNone(runtime["last_sbs_activity_at"])
+            self.assertTrue(sidecar.sbs_stream_fresh(runtime))
 
     def test_dashboard_serves_health_page_and_json(self):
         with tempfile.TemporaryDirectory() as directory, socket.socket() as probe:

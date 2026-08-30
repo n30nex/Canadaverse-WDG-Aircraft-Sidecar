@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.3.7"
+VERSION = "0.3.8"
 DEFAULT_UPLOAD_URL = "https://wdgwars.pl/api/upload/"
 DEFAULT_ME_URL = "https://wdgwars.pl/api/me"
 DEFAULT_TERRITORY_URL = (
@@ -339,6 +339,8 @@ class RuntimeState:
             "sbs_connected": False,
             "web_running": False,
             "messages": 0,
+            "last_sbs_activity_at": None,
+            "last_sbs_activity_epoch": None,
             "last_message_at": None,
             "last_message_epoch": None,
             "sbs_stale_seconds": env_int("SBS_STALE_SECONDS", 300, 30, 86400),
@@ -374,8 +376,8 @@ class RuntimeState:
 
 
 def sbs_stream_fresh(runtime: dict, now: float | None = None) -> bool:
-    last_message = runtime.get("last_message_epoch")
-    baseline = last_message if last_message is not None else runtime.get("started_at_epoch")
+    last_activity = runtime.get("last_sbs_activity_epoch")
+    baseline = last_activity if last_activity is not None else runtime.get("started_at_epoch")
     if baseline is None:
         return False
     stale_seconds = int(runtime.get("sbs_stale_seconds", 300))
@@ -848,6 +850,7 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
     tracker = Tracker()
     persisted_at: dict[str, int] = {}
     persisted_callsign: dict[str, str] = {}
+    activity_timestamp_at = 0.0
     message_timestamp_at = 0.0
 
     while not stop.is_set():
@@ -863,6 +866,13 @@ def sbs_loop(store: Store, state: RuntimeState, stop: threading.Event) -> None:
                         continue
                     if not chunk:
                         break
+                    monotonic_now = time.monotonic()
+                    if monotonic_now - activity_timestamp_at >= 1:
+                        state.set(
+                            last_sbs_activity_at=utc_now(),
+                            last_sbs_activity_epoch=int(time.time()),
+                        )
+                        activity_timestamp_at = monotonic_now
                     buffer += chunk.decode("ascii", errors="ignore")
                     while "\n" in buffer:
                         line, buffer = buffer.split("\n", 1)
